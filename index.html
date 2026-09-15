@@ -11,6 +11,21 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+    <!-- Firebase SDK -->
+    <script type="module">
+        import { initializeApp }         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
+        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot }
+                                         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
+        // ── Firebase config — se llena después ──────────────
+        const firebaseConfig = window.SWANTEX_FIREBASE_CONFIG || null;
+        if (firebaseConfig) {
+            const app = initializeApp(firebaseConfig);
+            const db  = getFirestore(app);
+            window.SWANTEX_FIREBASE = { app, db };
+            window.FirestoreSDK     = { doc, setDoc, getDoc, updateDoc, onSnapshot };
+            console.log('Firebase conectado ✓');
+        }
+    </script>
     <script>
         // ── Swantex Config ──────────────────────────────────────
         window.SWANTEX_CONFIG = {
@@ -26,6 +41,16 @@
                 'CP-7261': { nombre:'Camila Prias',    rol:'Diseño',            correos:['diseno@swantex.com.co','tinsolenzia@swantex.com.co'] },
                 'DP-9034': { nombre:'David Posada',    rol:'Producción',        correos:['dposada@swantex.com.co'] },
             }
+        };
+        // ── Firebase config — Swantex Fichas ──────────────────
+        window.SWANTEX_FIREBASE_CONFIG = {
+            apiKey:            'AIzaSyCQqlJRxiyJPNkgiBNnF5kquWpBxKuMiQ8',
+            authDomain:        'swantex-fichas-5ca6b.firebaseapp.com',
+            databaseURL:       'https://swantex-fichas-5ca6b-default-rtdb.firebaseio.com',
+            projectId:         'swantex-fichas-5ca6b',
+            storageBucket:     'swantex-fichas-5ca6b.firebasestorage.app',
+            messagingSenderId: '60295471678',
+            appId:             '1:60295471678:web:67a732cfbd97cdf20aa76f'
         };
     </script>
     <style>
@@ -1007,8 +1032,8 @@ const EnhebradoTab = ({ structures }) => {
         };
 
         // Send all 4 approval emails at once
-        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado) => {
-            const roles = ['BF-3817','MA-6524','PL-9043','CP-7261'];
+        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado, rolesAEnviar) => {
+            const roles = rolesAEnviar || ['BF-3817','MA-6524','PL-9043','CP-7261'];
             setEnviando(true);
             setResultado(null);
             const resultados = [];
@@ -1029,6 +1054,82 @@ const EnhebradoTab = ({ structures }) => {
             return resultados;
         };
 
+
+        /* ══════════════════════════════════════════════════════
+           FIREBASE — Sincronización de firmas en la nube
+        ══════════════════════════════════════════════════════ */
+
+        const FB = window.SWANTEX_FIREBASE || null;
+
+        /* ── Guardar ficha completa en Firestore ── */
+        const fbGuardarFicha = async (ficha) => {
+            if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
+            try {
+                const { doc, setDoc } = window.FirestoreSDK;
+                const docRef = doc(FB.db, 'fichas', ficha.id);
+                await setDoc(docRef, {
+                    ...ficha,
+                    _updatedAt: Date.now(),
+                    _updatedBy: 'elaboro',
+                });
+                return { ok:true };
+            } catch(e) { return { ok:false, err:String(e) }; }
+        };
+
+        /* ── Leer ficha de Firestore ── */
+        const fbLeerFicha = async (fichaId) => {
+            if (!FB || !FB.db) return null;
+            try {
+                const { doc, getDoc } = window.FirestoreSDK;
+                const snap = await getDoc(doc(FB.db, 'fichas', fichaId));
+                return snap.exists() ? snap.data() : null;
+            } catch(e) { return null; }
+        };
+
+        /* ── Guardar solo la firma de una jefatura ── */
+        const fbGuardarFirma = async (fichaId, campoAprobo, datosFirma) => {
+            if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
+            try {
+                const { doc, updateDoc } = window.FirestoreSDK;
+                const update = {};
+                update[campoAprobo] = datosFirma;
+                update['_updatedAt'] = Date.now();
+                update['_updatedBy'] = datosFirma.nombre;
+                await updateDoc(doc(FB.db, 'fichas', fichaId), update);
+                return { ok:true };
+            } catch(e) { return { ok:false, err:String(e) }; }
+        };
+
+        /* ── Escuchar cambios en tiempo real ── */
+        const fbEscucharFicha = (fichaId, onUpdate) => {
+            if (!FB || !FB.db) return ()=>{};
+            try {
+                const { doc, onSnapshot } = window.FirestoreSDK;
+                const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), (snap)=>{
+                    if (snap.exists()) onUpdate(snap.data());
+                });
+                return unsub;
+            } catch(e) { return ()=>{}; }
+        };
+
+        /* ── Enviar correo de notificación de firma ── */
+        const enviarNotificacionFirma = (ficha, nombreFirmante, rol, totalFirmas, firmasReq) => {
+            if (!CFG.EMAILJS_KEY || !CFG.EMAILJS_SERVICE) return;
+            const tplNotif = CFG.EMAILJS_TPL_NOTIF || CFG.EMAILJS_TPL;
+            window.emailjs.init(CFG.EMAILJS_KEY);
+            window.emailjs.send(CFG.EMAILJS_SERVICE, tplNotif, {
+                to_email:      CFG.CORREO_CIRCULARES,
+                nombre_firmante: nombreFirmante,
+                rol:           rol,
+                producto:      ficha.producto||'—',
+                lcc:           ficha.lcc||'—',
+                firmas_ok:     String(totalFirmas),
+                firmas_req:    String(firmasReq),
+                estado:        totalFirmas>=firmasReq?'✅ LISTA PARA PDF':'⏳ Pendiente '+String(firmasReq-totalFirmas)+' firma(s)',
+            }).catch(e=>console.warn('Notif email error:',e));
+        };
+
+
         const TALLAS_DEF   = ['S','SM','M','L','L/XL','XL','XXL','3XL','Única'];
         const CAUSAS_DEF   = ['Referencia Nueva','Cambio Materia','Modificación Diseño','Armado y Calidad','Corsetería'];
         const DIAMETROS    = ['13"','14"','15"','16"','17"','18"','20"','22"'];
@@ -1043,9 +1144,12 @@ const EnhebradoTab = ({ structures }) => {
         const [activaId,    setActivaId]    = useState(null);
         const [codigoInput, setCodigoInput] = useState({});   // {fichaId: string}
         const [codigoError, setCodigoError] = useState({});
-        const [modoAprobacion, setModoAprobacion] = useState(false);
-        const [enviando,       setEnviando]       = useState(false);
-        const [resultado,      setResultado]      = useState(null);
+        const [modoAprobacion,  setModoAprobacion]  = useState(false);
+        const [enviando,        setEnviando]        = useState(false);
+        const [resultado,       setResultado]       = useState(null);
+        const [rolesSelec,      setRolesSelec]      = useState({'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true});
+        const [fbSyncStatus,    setFbSyncStatus]    = useState({});  // {fichaId: 'synced'|'error'|'syncing'}
+        const [firestoreUnsubMap, setFirestoreUnsubMap] = useState({});
 
         /* ── Persistencia ── */
         const load = () => {
@@ -2012,75 +2116,195 @@ const EnhebradoTab = ({ structures }) => {
                             border:'1.5px solid #2563eb', borderRadius:14,
                             padding:'16px 20px', marginBottom:12
                         }}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:10}}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
                                 <div>
                                     <p style={{margin:0,fontSize:11,fontWeight:800,color:'#93c5fd',textTransform:'uppercase',letterSpacing:'0.1em'}}>
                                         📧 Enviar para Aprobación de Jefaturas
                                     </p>
                                     <p style={{margin:'3px 0 0',fontSize:10,color:'#4b5563'}}>
-                                        Se enviará un correo a cada jefatura con un link personalizado para aprobar
+                                        Selecciona quién debe aprobar esta referencia — no siempre son las 4 personas
                                     </p>
                                 </div>
+                                {/* Firebase sync status */}
+                                {fbSyncStatus[ficha.id] && (
+                                    <span style={{fontSize:9,padding:'3px 10px',borderRadius:99,fontWeight:700,
+                                        background:fbSyncStatus[ficha.id]==='synced'?'#065f46':fbSyncStatus[ficha.id]==='syncing'?'#1e3a5f':'#7f1d1d',
+                                        color:fbSyncStatus[ficha.id]==='synced'?'#6ee7b7':fbSyncStatus[ficha.id]==='syncing'?'#93c5fd':'#fca5a5'}}>
+                                        {fbSyncStatus[ficha.id]==='synced'?'☁ Guardado en nube':fbSyncStatus[ficha.id]==='syncing'?'⏳ Sincronizando...':'⚠ Sin conexión nube'}
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Selector de aprobadores */}
+                            <div style={{marginBottom:14}}>
+                                <p style={{margin:'0 0 8px',fontSize:9,fontWeight:800,color:'#6b7280',textTransform:'uppercase',letterSpacing:'0.1em'}}>
+                                    ¿Quién debe aprobar esta referencia?
+                                </p>
+                                <div style={{display:'flex',flexWrap:'wrap',gap:8}}>
+                                    {[
+                                        {key:'BF-3817',label:'Armado y Calidad',nombre:'Bella Forero',     col:'#3b82f6'},
+                                        {key:'MA-6524',label:'Corsetería',       nombre:'Marisol Álvarez',  col:'#10b981'},
+                                        {key:'PL-9043',label:'Calidad',          nombre:'Paola López',      col:'#f59e0b'},
+                                        {key:'CP-7261',label:'Diseño',           nombre:'Camila Prias',     col:'#ec4899'},
+                                    ].map(function(item){
+                                        const sel = rolesSelec[item.key];
+                                        const apr = ficha[
+                                            item.key==='BF-3817'?'aproboArmado':
+                                            item.key==='MA-6524'?'aproboCorseteria':
+                                            item.key==='PL-9043'?'aproboCalidad':'aproboDiseno'
+                                        ]||{};
+                                        return (
+                                            <button key={item.key}
+                                                onClick={function(){
+                                                    setRolesSelec(function(prev){
+                                                        var n=Object.assign({},prev);
+                                                        n[item.key]=!n[item.key];
+                                                        return n;
+                                                    });
+                                                }}
+                                                style={{
+                                                    padding:'7px 14px', borderRadius:9, cursor:'pointer',
+                                                    border:'2px solid '+(sel?item.col:'#374151'),
+                                                    background:sel?item.col+'22':'#1f2937',
+                                                    color:sel?item.col:'#4b5563',
+                                                    fontWeight:800, fontSize:10,
+                                                    display:'flex', alignItems:'center', gap:6,
+                                                    textTransform:'uppercase', letterSpacing:'0.05em',
+                                                    position:'relative'
+                                                }}>
+                                                <span style={{
+                                                    width:14,height:14,borderRadius:3,
+                                                    background:sel?item.col:'transparent',
+                                                    border:'2px solid '+(sel?item.col:'#374151'),
+                                                    display:'flex',alignItems:'center',justifyContent:'center',
+                                                    fontSize:10,color:'#fff',flexShrink:0
+                                                }}>{sel?'✓':''}</span>
+                                                {item.nombre}
+                                                {apr.bloqueado && (
+                                                    <span style={{fontSize:8,background:'#065f46',color:'#6ee7b7',
+                                                        padding:'1px 5px',borderRadius:99,marginLeft:2}}>✓ Firmado</span>
+                                                )}
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <p style={{margin:'6px 0 0',fontSize:9,color:'#374151'}}>
+                                    {Object.values(rolesSelec).filter(Boolean).length} aprobador(es) seleccionado(s)
+                                </p>
+                            </div>
+
+                            {/* Botón enviar */}
+                            <div style={{display:'flex',gap:10,flexWrap:'wrap',alignItems:'center',marginBottom:12}}>
                                 <button
-                                    disabled={enviando || !ficha.producto}
-                                    onClick={()=>enviarTodasLasAprobaciones(ficha, setEnviando, setResultado)}
+                                    disabled={enviando||!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0}
+                                    onClick={async function(){
+                                        // 1. Guardar en Firebase primero
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
+                                        const fbResult = await fbGuardarFicha(Object.assign({},ficha,{_rolesRequeridos:rolesSelec}));
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:fbResult.ok?'synced':'error'});});
+
+                                        // 2. Escuchar cambios en tiempo real
+                                        const unsub = fbEscucharFicha(ficha.id, function(data){
+                                            setFichas(function(prev){
+                                                const n=prev.map(function(f){return f.id===data.id?data:f;});
+                                                save(n); return n;
+                                            });
+                                            // Notificar cuántas firmas hay
+                                            const aprobCampos=['aproboArmado','aproboCorseteria','aproboCalidad','aproboDiseno'];
+                                            const firmadas=aprobCampos.filter(function(k){return data[k]&&data[k].bloqueado;}).length;
+                                            const requeridas=Object.values(rolesSelec).filter(Boolean).length;
+                                            if(firmadas>=requeridas){
+                                                setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'synced'});});
+                                            }
+                                        });
+                                        setFirestoreUnsubMap(function(p){return Object.assign({},p,{[ficha.id]:unsub});});
+
+                                        // 3. Enviar correos solo a los seleccionados
+                                        const rolesAEnviar=Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
+                                        await enviarTodasLasAprobaciones(
+                                            Object.assign({},ficha,{_rolesRequeridos:rolesSelec}),
+                                            setEnviando, setResultado, rolesAEnviar
+                                        );
+                                    }}
                                     style={{
-                                        padding:'10px 20px', borderRadius:10, border:'none',
-                                        background: enviando?'#374151':'#2563eb',
-                                        color:'#fff', fontWeight:800, fontSize:12,
-                                        cursor: enviando||!ficha.producto?'not-allowed':'pointer',
-                                        textTransform:'uppercase', letterSpacing:'0.06em',
-                                        display:'flex', alignItems:'center', gap:8,
-                                        opacity: !ficha.producto?0.5:1
+                                        padding:'10px 20px',borderRadius:10,border:'none',
+                                        background:enviando?'#374151':'#2563eb',
+                                        color:'#fff',fontWeight:800,fontSize:12,
+                                        cursor:enviando||!ficha.producto?'not-allowed':'pointer',
+                                        textTransform:'uppercase',letterSpacing:'0.06em',
+                                        display:'flex',alignItems:'center',gap:8,
+                                        opacity:!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0?0.5:1
                                     }}>
-                                    {enviando ? '⏳ Enviando...' : '📤 Enviar Correos de Aprobación'}
+                                    {enviando?'⏳ Enviando...':'📤 Enviar Correos de Aprobación'}
+                                </button>
+
+                                {/* Guardar en nube sin enviar correos */}
+                                <button
+                                    onClick={async function(){
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
+                                        const r=await fbGuardarFicha(ficha);
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
+                                    }}
+                                    style={{padding:'10px 16px',borderRadius:10,border:'1px solid #374151',
+                                        background:'#1f2937',color:'#9ca3af',fontWeight:700,fontSize:11,
+                                        cursor:'pointer',display:'flex',alignItems:'center',gap:6}}>
+                                    ☁ Guardar en nube
                                 </button>
                             </div>
 
-                            {/* Links individuales por jefatura */}
-                            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8,marginBottom:resultado?12:0}}>
+                            {/* Links individuales por aprobador seleccionado */}
+                            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(240px,1fr))',gap:8,marginBottom:resultado?12:0}}>
                                 {[
                                     {key:'BF-3817',label:'Armado y Calidad',col:'#3b82f6'},
-                                    {key:'MA-6524',label:'Corsetería',       col:'#10b981'},
-                                    {key:'PL-9043',label:'Calidad',          col:'#f59e0b'},
-                                    {key:'CP-7261',label:'Diseño',           col:'#ec4899'},
-                                ].map(function(item){
-                                    const apr = ficha[
+                                    {key:'MA-6524',label:'Corsetería',      col:'#10b981'},
+                                    {key:'PL-9043',label:'Calidad',         col:'#f59e0b'},
+                                    {key:'CP-7261',label:'Diseño',          col:'#ec4899'},
+                                ].filter(function(item){return rolesSelec[item.key];}).map(function(item){
+                                    const apr=ficha[
                                         item.key==='BF-3817'?'aproboArmado':
                                         item.key==='MA-6524'?'aproboCorseteria':
                                         item.key==='PL-9043'?'aproboCalidad':'aproboDiseno'
                                     ]||{};
-                                    const link = ficha.producto ? fichaToLink(ficha, item.key) : '';
+                                    const link=ficha.producto?fichaToLink(ficha,item.key):'';
                                     return (
                                         <div key={item.key} style={{
-                                            background:'#0d1520', border:'1px solid '+item.col+'44',
-                                            borderRadius:8, padding:'8px 12px',
-                                            display:'flex', flexDirection:'column', gap:4
+                                            background:'#0d1520',border:'1px solid '+item.col+'44',
+                                            borderRadius:8,padding:'8px 12px',
+                                            display:'flex',flexDirection:'column',gap:5
                                         }}>
                                             <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
                                                 <span style={{fontSize:10,fontWeight:800,color:item.col,textTransform:'uppercase'}}>{item.label}</span>
-                                                {apr.bloqueado && <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>}
+                                                {apr.bloqueado
+                                                    ? <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>
+                                                    : <span style={{fontSize:9,color:'#374151',fontWeight:600}}>Pendiente</span>
+                                                }
                                             </div>
                                             {link && (
-                                                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                                                <div style={{display:'flex',gap:5,alignItems:'center'}}>
                                                     <input readOnly value={link}
                                                         style={{flex:1,fontSize:8,padding:'3px 6px',
                                                             background:'#0a0e1a',border:'1px solid #1f2937',
                                                             borderRadius:4,color:'#6b7280',fontFamily:'monospace',
                                                             overflow:'hidden',textOverflow:'ellipsis'}}/>
-                                                    <button onClick={()=>navigator.clipboard.writeText(link)}
+                                                    <button onClick={function(){navigator.clipboard.writeText(link);}}
                                                         style={{padding:'3px 8px',borderRadius:4,background:item.col,
-                                                            color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
+                                                            color:'#fff',border:'none',fontWeight:800,
+                                                            fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
                                                         Copiar
                                                     </button>
                                                 </div>
+                                            )}
+                                            {apr.bloqueado && (
+                                                <p style={{margin:0,fontSize:8,color:'#4b5563'}}>
+                                                    {apr.nombre} · {apr.fecha}
+                                                </p>
                                             )}
                                         </div>
                                     );
                                 })}
                             </div>
 
-                            {/* Resultado del envío */}
+                            {/* Resultado envío */}
                             {resultado && (
                                 <div style={{borderTop:'1px solid #1f2937',paddingTop:10}}>
                                     <p style={{margin:'0 0 8px',fontSize:10,fontWeight:800,color:'#9ca3af',textTransform:'uppercase'}}>
@@ -2089,8 +2313,8 @@ const EnhebradoTab = ({ structures }) => {
                                     {resultado.map(function(r,ri){
                                         return (
                                             <div key={ri} style={{
-                                                display:'flex',alignItems:'center',gap:8,
-                                                padding:'5px 10px',borderRadius:6,marginBottom:4,
+                                                display:'flex',alignItems:'center',gap:8,padding:'5px 10px',
+                                                borderRadius:6,marginBottom:4,
                                                 background:r.ok?'rgba(16,185,129,0.08)':'rgba(220,38,38,0.08)',
                                                 border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')
                                             }}>
@@ -2099,13 +2323,8 @@ const EnhebradoTab = ({ structures }) => {
                                                     <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
                                                         {r.nombre} ({r.rol})
                                                     </span>
-                                                    {!r.ok && r.error && (
+                                                    {!r.ok&&r.error&&(
                                                         <span style={{fontSize:9,color:'#6b7280',marginLeft:8}}>{r.error}</span>
-                                                    )}
-                                                    {r.ok && r.link && false /* emailjs configurado */ && (
-                                                        <span style={{fontSize:8,color:'#6b7280',marginLeft:8}}>
-                                                            (EmailJS no configurado — usa el link Copiar)
-                                                        </span>
                                                     )}
                                                 </div>
                                             </div>
@@ -2115,7 +2334,7 @@ const EnhebradoTab = ({ structures }) => {
                             )}
                         </div>
 
-                        <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
+                                                <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             <div style={S.secHdr}><span>FIRMAS Y APROBACIÓN</span></div>
                             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:1,background:'#1f2937'}}>
 
