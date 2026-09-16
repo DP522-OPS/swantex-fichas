@@ -1922,7 +1922,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                             onChange={function(e){updReposo(ficha.id,talla,parte,lim,e.target.value);}}
                                                                             style={Object.assign({},S.inp2,
                                                                                 lim!=='prom'?{color:'#ef4444'}:{color:'#e2e8f0'},
-                                                                                {width:'100%',minWidth:70})}/>
+                                                                                {width:'100%',boxSizing:'border-box'})}/>
                                                                     </td>
                                                                 );
                                                             });
@@ -2004,7 +2004,7 @@ const EnhebradoTab = ({ structures }) => {
                                 </div>
                             ) : (
                                 <div style={{overflowX:'auto'}}>
-                                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
+                                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,tableLayout:'fixed'}}>
                                         {/* FILA 1: encabezados agrupados */}
                                         <thead>
                                             <tr>
@@ -2124,19 +2124,27 @@ const EnhebradoTab = ({ structures }) => {
                                                                 return (
                                                                     <td key={col} style={{
                                                                         border:'1px solid #1f2937',
-                                                                        padding:'1px 2px',
-                                                                        background: isEdge ? '#1a0a0a' : '#111827'}}>
+                                                                        padding:0,
+                                                                        background: isEdge ? '#1a0a0a' : '#111827',
+                                                                        overflow:'hidden'}}>
                                                                         <input
                                                                             value={val}
                                                                             onChange={function(e){
                                                                                 updCrudo(ficha.id,talla,lim,col,e.target.value);
                                                                             }}
                                                                             style={{
-                                                                                width:'100%',minWidth:80,background:'transparent',border:'none',
+                                                                                display:'block',
+                                                                                width:'100%',
+                                                                                background:'transparent',
+                                                                                border:'none',
                                                                                 color: isEdge ? '#ef4444' : '#e2e8f0',
-                                                                                fontSize:11,textAlign:'center',outline:'none',
-                                                                                padding:'4px 2px',
-                                                                                fontWeight: isEdge ? 700 : 400}}/>
+                                                                                fontSize:11,
+                                                                                textAlign:'center',
+                                                                                outline:'none',
+                                                                                padding:'5px 4px',
+                                                                                fontWeight: isEdge ? 700 : 400,
+                                                                                boxSizing:'border-box',
+                                                                                minWidth:0}}/>
                                                                     </td>
                                                                 );
                                                             })}
