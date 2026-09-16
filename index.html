@@ -2068,12 +2068,12 @@ const EnhebradoTab = ({ structures }) => {
                                                 })}
                                             </tr>
                                             {/* FILA 3: diámetro por talla — se repite como sub-header */}
-                                            <tr style={{background:'#0d1a10'}}>
+                                            <tr style={{background:'#0a1210'}}>
                                                 {[].concat(anchoCols,largoCols).map(function(col,ci){
                                                     return (
-                                                        <td key={ci} style={{border:'1px solid #1f2937',
-                                                            fontSize:8,color:'#4b5563',textAlign:'center',
-                                                            padding:'2px',background:'#0a0e1a'}}>
+                                                        <td key={ci} style={{border:'1px solid #1a2a1a',
+                                                            fontSize:7,color:'#374151',textAlign:'center',
+                                                            padding:'2px',fontStyle:'italic',fontWeight:600}}>
                                                             cm
                                                         </td>
                                                     );
@@ -2093,29 +2093,33 @@ const EnhebradoTab = ({ structures }) => {
                                                             background:rowBg,
                                                             borderBottom: li===2 ? '2px solid #14532d' : '1px solid #1a2a1a'}}>
                                                             {/* TALLA — rowSpan 3, centrada */}
-                                                            {li===0 && (
-                                                                <td rowSpan={3} style={{
-                                                                    background:'#111827',border:'1px solid #1f2937',
-                                                                    fontWeight:900,color:'#f1f5f9',textAlign:'center',
-                                                                    fontSize:12,verticalAlign:'middle',
-                                                                    padding:'0 10px',whiteSpace:'nowrap'}}>
-                                                                    {talla}
-                                                                    {/* Diámetro bajo el nombre de talla */}
-                                                                    <div style={{marginTop:4}}>
-                                                                        <select value={diam}
-                                                                            onChange={function(e){updCrudoDiam(ficha.id,talla,e.target.value);}}
-                                                                            style={{background:'#0d1520',border:'1px solid #2a3a50',
-                                                                                color:'#3b82f6',fontSize:9,width:'100%',
-                                                                                fontWeight:700,padding:'2px 4px',borderRadius:4,
-                                                                                textAlign:'center'}}>
-                                                                            <option value=''>Ø —</option>
-                                                                            {DIAMETROS.map(function(d){
-                                                                                return <option key={d} value={d}>{d}</option>;
-                                                                            })}
-                                                                        </select>
-                                                                    </div>
-                                                                </td>
-                                                            )}
+                                                                    {li===0 && (
+                                                            <td rowSpan={3} style={{
+                                                                background:'#0d1520',
+                                                                border:'1px solid #1f2937',
+                                                                borderLeft:'3px solid #10b981',
+                                                                fontWeight:900,color:'#f1f5f9',
+                                                                textAlign:'center',fontSize:13,
+                                                                verticalAlign:'middle',
+                                                                padding:'8px 10px',whiteSpace:'nowrap'}}>
+                                                                {talla}
+                                                                <div style={{marginTop:5}}>
+                                                                    <select value={diam}
+                                                                        onChange={function(e){updCrudoDiam(ficha.id,talla,e.target.value);}}
+                                                                        style={{background:'#111827',
+                                                                            border:'1px solid #1e3a5f',
+                                                                            color:'#3b82f6',fontSize:9,width:'100%',
+                                                                            fontWeight:700,padding:'3px 4px',
+                                                                            borderRadius:6,textAlign:'center',
+                                                                            cursor:'pointer'}}>
+                                                                        <option value=''>Ø —</option>
+                                                                        {DIAMETROS.map(function(d){
+                                                                            return <option key={d} value={d}>{d}</option>;
+                                                                        })}
+                                                                    </select>
+                                                                </div>
+                                                            </td>
+                                                        )}
                                                             {/* LÍMITE */}
                                                             <td style={{
                                                                 border:'1px solid #1f2937',padding:'3px 6px',
