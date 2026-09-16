@@ -11,20 +11,32 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-    <!-- Firebase SDK -->
-    <script type="module">
-        import { initializeApp }         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';
-        import { getFirestore, doc, setDoc, getDoc, updateDoc, onSnapshot }
-                                         from 'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js';
-        // ── Firebase config — se llena después ──────────────
-        const firebaseConfig = window.SWANTEX_FIREBASE_CONFIG || null;
-        if (firebaseConfig) {
-            const app = initializeApp(firebaseConfig);
-            const db  = getFirestore(app);
-            window.SWANTEX_FIREBASE = { app, db };
-            window.FirestoreSDK     = { doc, setDoc, getDoc, updateDoc, onSnapshot };
-            console.log('Firebase conectado ✓');
-        }
+    <!-- Firebase SDK — compat version (funciona con Babel/UMD) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+    <script>
+        (function(){
+            var cfg = window.SWANTEX_FIREBASE_CONFIG;
+            if (!cfg) { console.warn('Firebase config no encontrado'); return; }
+            try {
+                var app = firebase.initializeApp(cfg);
+                var db  = firebase.firestore();
+                window.SWANTEX_FIREBASE = { app: app, db: db };
+                // Expose Firestore SDK functions as wrappers
+                window.FirestoreSDK = {
+                    doc: function(db, col, id) { return db.collection(col).doc(id); },
+                    setDoc: function(ref, data) { return ref.set(data); },
+                    getDoc: function(ref) {
+                        return ref.get().then(function(snap) {
+                            return { exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } };
+                        });
+                    },
+                    updateDoc: function(ref, data) { return ref.update(data); },
+                    onSnapshot: function(ref, cb) { return ref.onSnapshot(function(snap){ cb({ exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } }); }); }
+                };
+                console.log('Firebase conectado ✓ (compat mode)');
+            } catch(e) { console.error('Firebase init error:', e); }
+        })();
     </script>
     <script>
         // ── Swantex Config ──────────────────────────────────────
@@ -1105,7 +1117,7 @@ const EnhebradoTab = ({ structures }) => {
             if (!FB || !FB.db) return ()=>{};
             try {
                 const { doc, onSnapshot } = window.FirestoreSDK;
-                const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), (snap)=>{
+                const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), function(snap){
                     if (snap.exists()) onUpdate(snap.data());
                 });
                 return unsub;
