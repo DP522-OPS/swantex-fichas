@@ -16,26 +16,52 @@
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
     <script>
         (function(){
-            var cfg = window.SWANTEX_FIREBASE_CONFIG;
-            if (!cfg) { console.warn('Firebase config no encontrado'); return; }
-            try {
-                var app = firebase.initializeApp(cfg);
-                var db  = firebase.firestore();
-                window.SWANTEX_FIREBASE = { app: app, db: db };
-                // Expose Firestore SDK functions as wrappers
-                window.FirestoreSDK = {
-                    doc: function(db, col, id) { return db.collection(col).doc(id); },
-                    setDoc: function(ref, data) { return ref.set(data); },
-                    getDoc: function(ref) {
-                        return ref.get().then(function(snap) {
-                            return { exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } };
-                        });
-                    },
-                    updateDoc: function(ref, data) { return ref.update(data); },
-                    onSnapshot: function(ref, cb) { return ref.onSnapshot(function(snap){ cb({ exists: function(){ return snap.exists; }, data: function(){ return snap.data(); } }); }); }
-                };
-                console.log('Firebase conectado ✓ (compat mode)');
-            } catch(e) { console.error('Firebase init error:', e); }
+            // Config embebido directamente — sin depender de orden de scripts
+            var cfg = {
+                apiKey:            'AIzaSyCQqlJRxiyJPNkgiBNnF5kquWpBxKuMiQ8',
+                authDomain:        'swantex-fichas-5ca6b.firebaseapp.com',
+                projectId:         'swantex-fichas-5ca6b',
+                storageBucket:     'swantex-fichas-5ca6b.firebasestorage.app',
+                messagingSenderId: '60295471678',
+                appId:             '1:60295471678:web:67a732cfbd97cdf20aa76f'
+            };
+            // Esperar a que Firebase esté disponible
+            function initFB() {
+                if (typeof firebase === 'undefined') {
+                    setTimeout(initFB, 100); return;
+                }
+                try {
+                    var app = firebase.initializeApp(cfg);
+                    var db  = firebase.firestore();
+                    window.SWANTEX_FIREBASE = { app: app, db: db };
+                    window.FirestoreSDK = {
+                        doc:        function(db, col, id)  { return db.collection(col).doc(id); },
+                        setDoc:     function(ref, data)    { return ref.set(data); },
+                        getDoc:     function(ref)          {
+                            return ref.get().then(function(snap) {
+                                return {
+                                    exists: function(){ return snap.exists; },
+                                    data:   function(){ return snap.data(); }
+                                };
+                            });
+                        },
+                        updateDoc:  function(ref, data)    { return ref.update(data); },
+                        onSnapshot: function(ref, cb)      {
+                            return ref.onSnapshot(function(snap){
+                                cb({
+                                    exists: function(){ return snap.exists; },
+                                    data:   function(){ return snap.data(); }
+                                });
+                            });
+                        }
+                    };
+                    window.SWANTEX_FIREBASE_CONFIG = cfg;
+                    console.log('Firebase conectado ✓');
+                } catch(e) {
+                    console.error('Firebase init error:', e);
+                }
+            }
+            initFB();
         })();
     </script>
     <script>
