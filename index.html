@@ -2004,7 +2004,14 @@ const EnhebradoTab = ({ structures }) => {
                                 </div>
                             ) : (
                                 <div style={{overflowX:'auto'}}>
-                                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,tableLayout:'fixed'}}>
+                                    <table style={{borderCollapse:'collapse',width:'auto',fontSize:11,tableLayout:'fixed'}}>
+                                        <colgroup>
+                                            <col style={{width:70}}/>
+                                            <col style={{width:50}}/>
+                                            <col style={{width:75}}/>
+                                            {anchoCols.map(function(_,ci){ return <col key={ci} style={{width:140}}/>; })}
+                                            {largoCols.map(function(_,ci){ return <col key={'l'+ci} style={{width:140}}/>; })}
+                                        </colgroup>
                                         {/* FILA 1: encabezados agrupados */}
                                         <thead>
                                             <tr>
@@ -2125,6 +2132,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                     <td key={col} style={{
                                                                         border:'1px solid #1f2937',
                                                                         padding:0,
+                                                                        width:140,
                                                                         background: isEdge ? '#1a0a0a' : '#111827',
                                                                         overflow:'hidden'}}>
                                                                         <input
@@ -2134,17 +2142,16 @@ const EnhebradoTab = ({ structures }) => {
                                                                             }}
                                                                             style={{
                                                                                 display:'block',
-                                                                                width:'100%',
+                                                                                width:140,
                                                                                 background:'transparent',
                                                                                 border:'none',
                                                                                 color: isEdge ? '#ef4444' : '#e2e8f0',
                                                                                 fontSize:11,
-                                                                                textAlign:'center',
+                                                                                textAlign:'left',
                                                                                 outline:'none',
-                                                                                padding:'5px 4px',
+                                                                                padding:'5px 8px',
                                                                                 fontWeight: isEdge ? 700 : 400,
-                                                                                boxSizing:'border-box',
-                                                                                minWidth:0}}/>
+                                                                                boxSizing:'border-box'}}/>
                                                                     </td>
                                                                 );
                                                             })}
