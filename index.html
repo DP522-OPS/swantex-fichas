@@ -1074,75 +1074,70 @@ const EnhebradoTab = ({ structures }) => {
 
         /* ── Guardar ficha completa en Firestore ── */
         /* Sanitize for Firestore — fields cannot start AND end with __ */
-        const sanitizeForFirestore = function(obj) {
-            if (typeof obj !== 'object' || obj === null) return obj;
-            if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
-            var r = {};
-            Object.keys(obj).forEach(function(k) {
-                r[k.replace(/^__(.+)__$/, '_$1_')] = sanitizeForFirestore(obj[k]);
+        /* Deep clean object for Firestore */
+        const cleanForFirestore = function(input) {
+            var str = JSON.stringify(input, function(key, val) {
+                if (typeof val === 'function') return undefined;
+                return val;
             });
-            return r;
+            // Replace all "__xxx__" patterns with "xXxxXx" style
+            str = str.replace(/"__([^"]+)__"\s*:/g, '"_fb_$1_":');
+            return JSON.parse(str);
         };
-        const restoreFromFirestore = function(obj) {
-            if (typeof obj !== 'object' || obj === null) return obj;
-            if (Array.isArray(obj)) return obj.map(restoreFromFirestore);
-            var r = {};
-            Object.keys(obj).forEach(function(k) {
-                r[k.replace(/^_([^_].+[^_])_$/, '__$1__')] = restoreFromFirestore(obj[k]);
-            });
-            return r;
+        const restoreFromFirestore = function(input) {
+            var str = JSON.stringify(input);
+            str = str.replace(/"_fb_([^"]+)_"\s*:/g, '"__$1__":');
+            return JSON.parse(str);
         };
+        const sanitizeForFirestore = cleanForFirestore;
 
         const fbGuardarFicha = async (ficha) => {
-            var FB=getFB(); if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
+            const FB = getFB();
+            if (!FB || !FB.db) return { ok:false, err:'Firebase no conectado' };
             try {
-                const { doc, setDoc } = window.FirestoreSDK;
-                const docRef = doc(FB.db, 'fichas', ficha.id);
-                var safeData = sanitizeForFirestore(Object.assign({}, ficha, {
+                const safe = cleanForFirestore(Object.assign({}, ficha, {
                     _updatedAt: Date.now(),
                     _updatedBy: 'elaboro',
                 }));
-                await setDoc(docRef, safeData);
+                await FB.db.collection('fichas').doc(ficha.id).set(safe);
                 return { ok:true };
-            } catch(e) { return { ok:false, err:String(e) }; }
+            } catch(e) {
+                console.error('Firebase save error:', e);
+                return { ok:false, err:String(e) };
+            }
         };
-
         /* ── Leer ficha de Firestore ── */
         const fbLeerFicha = async (fichaId) => {
-            var FB=getFB(); if (!FB || !FB.db) return null;
+            const FB = getFB();
+            if (!FB || !FB.db) return null;
             try {
-                const { doc, getDoc } = window.FirestoreSDK;
-                const snap = await getDoc(doc(FB.db, 'fichas', fichaId));
-                return snap.exists() ? restoreFromFirestore(snap.data()) : null;
-            } catch(e) { return null; }
+                const snap = await FB.db.collection('fichas').doc(fichaId).get();
+                if (!snap.exists) return null;
+                return restoreFromFirestore(snap.data());
+            } catch(e) { console.error('Firebase read error:', e); return null; }
         };
-
         /* ── Guardar solo la firma de una jefatura ── */
-        const fbGuardarFirma = async (fichaId, campoAprobo, datosFirma) => {
-            var FB=getFB(); if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
+        const fbGuardarFirma = async (fichaId, campo, datos) => {
+            const FB = getFB();
+            if (!FB || !FB.db) return { ok:false };
             try {
-                const { doc, updateDoc } = window.FirestoreSDK;
-                const update = {};
-                update[campoAprobo] = datosFirma;
-                update['_updatedAt'] = Date.now();
-                update['_updatedBy'] = datosFirma.nombre;
-                await updateDoc(doc(FB.db, 'fichas', fichaId), update);
+                const upd = {};
+                upd[campo] = datos;
+                upd['_updatedAt'] = Date.now();
+                await FB.db.collection('fichas').doc(fichaId).update(upd);
                 return { ok:true };
             } catch(e) { return { ok:false, err:String(e) }; }
         };
-
         /* ── Escuchar cambios en tiempo real ── */
         const fbEscucharFicha = (fichaId, onUpdate) => {
-            var FB=getFB(); if (!FB || !FB.db) return ()=>{};
+            const FB = getFB();
+            if (!FB || !FB.db) return () => {};
             try {
-                const { doc, onSnapshot } = window.FirestoreSDK;
-                const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), (snap)=>{
-                    if (snap.exists()) onUpdate(restoreFromFirestore(snap.data()));
+                return FB.db.collection('fichas').doc(fichaId).onSnapshot(snap => {
+                    if (snap.exists) onUpdate(restoreFromFirestore(snap.data()));
                 });
-                return unsub;
-            } catch(e) { return ()=>{}; }
+            } catch(e) { return () => {}; }
         };
-
         /* ── Enviar correo de notificación de firma ── */
         const enviarNotificacionFirma = (ficha, nombreFirmante, rol, totalFirmas, firmasReq) => {
             if (!CFG.EMAILJS_KEY || !CFG.EMAILJS_SERVICE) return;
