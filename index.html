@@ -1073,16 +1073,36 @@ const EnhebradoTab = ({ structures }) => {
         const getFB = function(){ return window.SWANTEX_FIREBASE || null; };
 
         /* ── Guardar ficha completa en Firestore ── */
+        /* Sanitize for Firestore — fields cannot start AND end with __ */
+        const sanitizeForFirestore = function(obj) {
+            if (typeof obj !== 'object' || obj === null) return obj;
+            if (Array.isArray(obj)) return obj.map(sanitizeForFirestore);
+            var r = {};
+            Object.keys(obj).forEach(function(k) {
+                r[k.replace(/^__(.+)__$/, '_$1_')] = sanitizeForFirestore(obj[k]);
+            });
+            return r;
+        };
+        const restoreFromFirestore = function(obj) {
+            if (typeof obj !== 'object' || obj === null) return obj;
+            if (Array.isArray(obj)) return obj.map(restoreFromFirestore);
+            var r = {};
+            Object.keys(obj).forEach(function(k) {
+                r[k.replace(/^_([^_].+[^_])_$/, '__$1__')] = restoreFromFirestore(obj[k]);
+            });
+            return r;
+        };
+
         const fbGuardarFicha = async (ficha) => {
             var FB=getFB(); if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
             try {
                 const { doc, setDoc } = window.FirestoreSDK;
                 const docRef = doc(FB.db, 'fichas', ficha.id);
-                await setDoc(docRef, {
-                    ...ficha,
+                var safeData = sanitizeForFirestore(Object.assign({}, ficha, {
                     _updatedAt: Date.now(),
                     _updatedBy: 'elaboro',
-                });
+                }));
+                await setDoc(docRef, safeData);
                 return { ok:true };
             } catch(e) { return { ok:false, err:String(e) }; }
         };
@@ -1093,7 +1113,7 @@ const EnhebradoTab = ({ structures }) => {
             try {
                 const { doc, getDoc } = window.FirestoreSDK;
                 const snap = await getDoc(doc(FB.db, 'fichas', fichaId));
-                return snap.exists() ? snap.data() : null;
+                return snap.exists() ? restoreFromFirestore(snap.data()) : null;
             } catch(e) { return null; }
         };
 
@@ -1117,7 +1137,7 @@ const EnhebradoTab = ({ structures }) => {
             try {
                 const { doc, onSnapshot } = window.FirestoreSDK;
                 const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), (snap)=>{
-                    if (snap.exists()) onUpdate(snap.data());
+                    if (snap.exists()) onUpdate(restoreFromFirestore(snap.data()));
                 });
                 return unsub;
             } catch(e) { return ()=>{}; }
