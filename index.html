@@ -609,405 +609,405 @@
 
 
 
-const EnhebradoTab = ({ structures }) => {
-    const EKEY = 'swantex_enh_v2';
-
-    const [fichaId, setFichaId]     = useState('');
-    const [numAlim, setNumAlim]     = useState(8);
-    const [numGH,   setNumGH]       = useState(9);
-    const [grid,    setGrid]        = useState({});   // 'a1_g3' → {nombre,titulo,lote,itemS,itemZ}
-    const [selHilo, setSelHilo]     = useState(null); // hilo activo para click-to-place
-    const [allData, setAllData]     = useState({});   // todos los enhebrados guardados
-
-    // Cargar todos los datos al montar
-    useEffect(() => {
-        try {
-            const raw = localStorage.getItem(EKEY);
-            const parsed = raw ? JSON.parse(raw) : {};
-            setAllData(parsed);
-        } catch(e) { setAllData({}); }
-    }, []);
-
-    // Cuando cambia fichaId, cargar su configuración
-    useEffect(() => {
-        if (!fichaId) return;
-        const saved = allData[fichaId];
-        if (saved) {
-            setGrid(saved.grid   || {});
-            setNumAlim(saved.numAlim || 8);
-            setNumGH(saved.numGH   || 9);
-        } else {
-            setGrid({});
-            setNumAlim(8);
-            setNumGH(9);
-        }
-        setSelHilo(null);
-    }, [fichaId]);
-
-    // Inicializar fichaId con la primera ficha disponible
-    useEffect(() => {
-        if (structures.length > 0 && !fichaId) {
-            setFichaId(structures[0].id);
-        }
-    }, [structures]);
-
-    const saveGrid = (newGrid, na, ng) => {
-        const fid = fichaId;
-        if (!fid) return;
-        const newAll = Object.assign({}, allData, {
-            [fid]: { grid: newGrid, numAlim: na || numAlim, numGH: ng || numGH }
-        });
-        setAllData(newAll);
-        setGrid(newGrid);
-        try { localStorage.setItem(EKEY, JSON.stringify(newAll)); } catch(e) {}
-    };
-
-    const ficha = structures.find(s => s.id === fichaId) || null;
-
-    const hilosDisp = ficha
-        ? ficha.fibras.filter(f => f.nombre && f.titulo)
-        : [];
-
-    const COLORES = {
-        'Nylon Tex':  { bg:'#1a2e4a', border:'#3b82f6', text:'#93c5fd' },
-        'Nylon Rig':  { bg:'#2a1a4a', border:'#8b5cf6', text:'#c4b5fd' },
-        'Lycra':      { bg:'#0a2e20', border:'#10b981', text:'#6ee7b7' },
-        'Poliester':  { bg:'#2e1f0a', border:'#f59e0b', text:'#fcd34d' },
-        'Modal':      { bg:'#2e0a1f', border:'#ec4899', text:'#f9a8d4' },
-        'Jaspe':      { bg:'#2e0a0a', border:'#ef4444', text:'#fca5a5' },
-    };
-    const getCol = (nombre) => COLORES[nombre] || { bg:'#1f2937', border:'#4b5563', text:'#9ca3af' };
-
-    const ck = (a, g) => 'a' + a + '_g' + g;
-
-    const clickCell = (a, g) => {
-        if (!selHilo) return;
-        const newGrid = Object.assign({}, grid);
-        if (selHilo === 'CLEAR') {
+    const EnhebradoTab = ({ structures }) => {
+        const EKEY = 'swantex_enh_v2';
+    
+        const [fichaId, setFichaId]     = useState('');
+        const [numAlim, setNumAlim]     = useState(8);
+        const [numGH,   setNumGH]       = useState(9);
+        const [grid,    setGrid]        = useState({});   // 'a1_g3' → {nombre,titulo,lote,itemS,itemZ}
+        const [selHilo, setSelHilo]     = useState(null); // hilo activo para click-to-place
+        const [allData, setAllData]     = useState({});   // todos los enhebrados guardados
+    
+        // Cargar todos los datos al montar
+        useEffect(() => {
+            try {
+                const raw = localStorage.getItem(EKEY);
+                const parsed = raw ? JSON.parse(raw) : {};
+                setAllData(parsed);
+            } catch(e) { setAllData({}); }
+        }, []);
+    
+        // Cuando cambia fichaId, cargar su configuración
+        useEffect(() => {
+            if (!fichaId) return;
+            const saved = allData[fichaId];
+            if (saved) {
+                setGrid(saved.grid   || {});
+                setNumAlim(saved.numAlim || 8);
+                setNumGH(saved.numGH   || 9);
+            } else {
+                setGrid({});
+                setNumAlim(8);
+                setNumGH(9);
+            }
+            setSelHilo(null);
+        }, [fichaId]);
+    
+        // Inicializar fichaId con la primera ficha disponible
+        useEffect(() => {
+            if (structures.length > 0 && !fichaId) {
+                setFichaId(structures[0].id);
+            }
+        }, [structures]);
+    
+        const saveGrid = (newGrid, na, ng) => {
+            const fid = fichaId;
+            if (!fid) return;
+            const newAll = Object.assign({}, allData, {
+                [fid]: { grid: newGrid, numAlim: na || numAlim, numGH: ng || numGH }
+            });
+            setAllData(newAll);
+            setGrid(newGrid);
+            try { localStorage.setItem(EKEY, JSON.stringify(newAll)); } catch(e) {}
+        };
+    
+        const ficha = structures.find(s => s.id === fichaId) || null;
+    
+        const hilosDisp = ficha
+            ? ficha.fibras.filter(f => f.nombre && f.titulo)
+            : [];
+    
+        const COLORES = {
+            'Nylon Tex':  { bg:'#1a2e4a', border:'#3b82f6', text:'#93c5fd' },
+            'Nylon Rig':  { bg:'#2a1a4a', border:'#8b5cf6', text:'#c4b5fd' },
+            'Lycra':      { bg:'#0a2e20', border:'#10b981', text:'#6ee7b7' },
+            'Poliester':  { bg:'#2e1f0a', border:'#f59e0b', text:'#fcd34d' },
+            'Modal':      { bg:'#2e0a1f', border:'#ec4899', text:'#f9a8d4' },
+            'Jaspe':      { bg:'#2e0a0a', border:'#ef4444', text:'#fca5a5' },
+        };
+        const getCol = (nombre) => COLORES[nombre] || { bg:'#1f2937', border:'#4b5563', text:'#9ca3af' };
+    
+        const ck = (a, g) => 'a' + a + '_g' + g;
+    
+        const clickCell = (a, g) => {
+            if (!selHilo) return;
+            const newGrid = Object.assign({}, grid);
+            if (selHilo === 'CLEAR') {
+                delete newGrid[ck(a, g)];
+            } else {
+                newGrid[ck(a, g)] = {
+                    nombre: selHilo.nombre,
+                    titulo: selHilo.titulo,
+                    lote:   selHilo.lote   || '',
+                    itemS:  selHilo.itemS  || '',
+                    itemZ:  selHilo.itemZ  || '',
+                };
+            }
+            saveGrid(newGrid, numAlim, numGH);
+        };
+    
+        const clearCell = (a, g) => {
+            const newGrid = Object.assign({}, grid);
             delete newGrid[ck(a, g)];
-        } else {
-            newGrid[ck(a, g)] = {
-                nombre: selHilo.nombre,
-                titulo: selHilo.titulo,
-                lote:   selHilo.lote   || '',
-                itemS:  selHilo.itemS  || '',
-                itemZ:  selHilo.itemZ  || '',
-            };
-        }
-        saveGrid(newGrid, numAlim, numGH);
-    };
-
-    const clearCell = (a, g) => {
-        const newGrid = Object.assign({}, grid);
-        delete newGrid[ck(a, g)];
-        saveGrid(newGrid, numAlim, numGH);
-    };
-
-    const resetGrid = () => {
-        if (!window.confirm('¿Resetear todo el enhebrado de esta ficha?')) return;
-        saveGrid({}, numAlim, numGH);
-    };
-
-    const changeAlim = (v) => {
-        const n = parseInt(v);
-        setNumAlim(n);
-        saveGrid(grid, n, numGH);
-    };
-
-    const changeGH = (v) => {
-        const n = parseInt(v);
-        setNumGH(n);
-        saveGrid(grid, numAlim, n);
-    };
-
-    const changeFicha = (id) => {
-        setFichaId(id);
-        setSelHilo(null);
-    };
-
-    // Contar asignaciones por hilo
-    const cuentas = {};
-    Object.values(grid).forEach(h => {
-        if (!h) return;
-        const k = h.titulo || h.nombre;
-        cuentas[k] = (cuentas[k] || 0) + 1;
-    });
-
-    const alims = [];
-    for (let i = 1; i <= numAlim; i++) alims.push(i);
-    const ghs = [];
-    for (let i = 1; i <= numGH; i++) ghs.push(i);
-
-    // Resumen por columna GH
-    const resumenGH = {};
-    ghs.forEach(g => {
-        const set = {};
-        alims.forEach(a => {
-            const h = grid[ck(a, g)];
-            if (h) set[h.titulo || h.nombre] = h.nombre;
+            saveGrid(newGrid, numAlim, numGH);
+        };
+    
+        const resetGrid = () => {
+            if (!window.confirm('¿Resetear todo el enhebrado de esta ficha?')) return;
+            saveGrid({}, numAlim, numGH);
+        };
+    
+        const changeAlim = (v) => {
+            const n = parseInt(v);
+            setNumAlim(n);
+            saveGrid(grid, n, numGH);
+        };
+    
+        const changeGH = (v) => {
+            const n = parseInt(v);
+            setNumGH(n);
+            saveGrid(grid, numAlim, n);
+        };
+    
+        const changeFicha = (id) => {
+            setFichaId(id);
+            setSelHilo(null);
+        };
+    
+        // Contar asignaciones por hilo
+        const cuentas = {};
+        Object.values(grid).forEach(h => {
+            if (!h) return;
+            const k = h.titulo || h.nombre;
+            cuentas[k] = (cuentas[k] || 0) + 1;
         });
-        if (Object.keys(set).length) resumenGH[g] = set;
-    });
-
-    if (structures.length === 0) {
+    
+        const alims = [];
+        for (let i = 1; i <= numAlim; i++) alims.push(i);
+        const ghs = [];
+        for (let i = 1; i <= numGH; i++) ghs.push(i);
+    
+        // Resumen por columna GH
+        const resumenGH = {};
+        ghs.forEach(g => {
+            const set = {};
+            alims.forEach(a => {
+                const h = grid[ck(a, g)];
+                if (h) set[h.titulo || h.nombre] = h.nombre;
+            });
+            if (Object.keys(set).length) resumenGH[g] = set;
+        });
+    
+        if (structures.length === 0) {
+            return (
+                <div style={{textAlign:'center', padding:60, color:'#4b5563'}}>
+                    <p style={{fontWeight:700, fontSize:14}}>Crea al menos una ficha en F-CIR-002 primero.</p>
+                </div>
+            );
+        }
+    
+        const selCol = selHilo && selHilo !== 'CLEAR' ? getCol(selHilo.nombre) : null;
+    
         return (
-            <div style={{textAlign:'center', padding:60, color:'#4b5563'}}>
-                <p style={{fontWeight:700, fontSize:14}}>Crea al menos una ficha en F-CIR-002 primero.</p>
-            </div>
-        );
-    }
-
-    const selCol = selHilo && selHilo !== 'CLEAR' ? getCol(selHilo.nombre) : null;
-
-    return (
-        <div style={{paddingBottom:60}}>
-            {/* ── HEADER ── */}
-            <div style={{background:'#0d1520', border:'1px solid #1f2e42', borderRadius:14,
-                padding:'16px 20px', marginBottom:16}}>
-                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start',
-                    flexWrap:'wrap', gap:12, marginBottom:14}}>
-                    <div>
-                        <p style={{margin:'0 0 2px', fontSize:9, fontWeight:800, color:'#10b981',
-                            textTransform:'uppercase', letterSpacing:'0.14em'}}>FORMATO FT-CIR-004</p>
-                        <h2 style={{margin:'0 0 3px', fontSize:16, fontWeight:900, color:'#f1f5f9',
-                            letterSpacing:'-0.02em'}}>
-                            MATRIZ GUÍAHILOS × ALIMENTADORES — SANTONI
-                        </h2>
-                        {ficha && (
-                            <p style={{margin:0, fontSize:10, color:'#6b7280'}}>
-                                Ficha activa: <span style={{color:'#10b981', fontWeight:700}}>{ficha.nombrePrenda}</span>
-                                {ficha.header && ficha.header.referencia
-                                    ? ' · ' + ficha.header.referencia : ''}
+            <div style={{paddingBottom:60}}>
+                {/* ── HEADER ── */}
+                <div style={{background:'#0d1520', border:'1px solid #1f2e42', borderRadius:14,
+                    padding:'16px 20px', marginBottom:16}}>
+                    <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start',
+                        flexWrap:'wrap', gap:12, marginBottom:14}}>
+                        <div>
+                            <p style={{margin:'0 0 2px', fontSize:9, fontWeight:800, color:'#10b981',
+                                textTransform:'uppercase', letterSpacing:'0.14em'}}>FORMATO FT-CIR-004</p>
+                            <h2 style={{margin:'0 0 3px', fontSize:16, fontWeight:900, color:'#f1f5f9',
+                                letterSpacing:'-0.02em'}}>
+                                MATRIZ GUÍAHILOS × ALIMENTADORES — SANTONI
+                            </h2>
+                            {ficha && (
+                                <p style={{margin:0, fontSize:10, color:'#6b7280'}}>
+                                    Ficha activa: <span style={{color:'#10b981', fontWeight:700}}>{ficha.nombrePrenda}</span>
+                                    {ficha.header && ficha.header.referencia
+                                        ? ' · ' + ficha.header.referencia : ''}
+                                </p>
+                            )}
+                        </div>
+                        <button onClick={resetGrid}
+                            style={{padding:'7px 14px', borderRadius:8, background:'#7f1d1d',
+                                color:'#fca5a5', border:'1px solid #dc2626', fontWeight:800,
+                                fontSize:11, cursor:'pointer', textTransform:'uppercase'}}>
+                            ⚡ Resetear
+                        </button>
+                    </div>
+                    {/* Controles */}
+                    <div style={{display:'flex', flexWrap:'wrap', gap:12, alignItems:'flex-end'}}>
+                        <div>
+                            <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
+                                textTransform:'uppercase'}}>Ficha (F-CIR-002)</p>
+                            <select value={fichaId} onChange={e => changeFicha(e.target.value)}
+                                style={{minWidth:220, fontWeight:700, fontSize:12}}>
+                                {structures.map(s => (
+                                    <option key={s.id} value={s.id}>
+                                        {s.nombrePrenda}{s.header && s.header.referencia ? ' · ' + s.header.referencia : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div>
+                            <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
+                                textTransform:'uppercase'}}>Alimentadores</p>
+                            <select value={numAlim} onChange={e => changeAlim(e.target.value)}
+                                style={{fontWeight:700, fontSize:12}}>
+                                {[4,6,8,10,12,16,20,24].map(n =>
+                                    <option key={n} value={n}>{n}</option>
+                                )}
+                            </select>
+                        </div>
+                        <div>
+                            <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
+                                textTransform:'uppercase'}}>Guíahilos (GH)</p>
+                            <select value={numGH} onChange={e => changeGH(e.target.value)}
+                                style={{fontWeight:700, fontSize:12}}>
+                                {[3,4,5,6,7,8,9,10,12].map(n =>
+                                    <option key={n} value={n}>{n}</option>
+                                )}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+    
+                {/* ── PALETA DE HILOS ── */}
+                <div style={{background:'#111827', border:'1px solid #1f2937', borderRadius:12,
+                    padding:'12px 16px', marginBottom:12}}>
+                    <p style={{margin:'0 0 10px', fontSize:9, fontWeight:800, color:'#6b7280',
+                        textTransform:'uppercase', letterSpacing:'0.12em'}}>
+                        SELECCIONA UN HILO → LUEGO HAZ CLIC EN LA CELDA
+                    </p>
+                    <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center'}}>
+                        {hilosDisp.length === 0 && (
+                            <p style={{color:'#4b5563', fontSize:11, fontStyle:'italic', margin:0}}>
+                                Esta ficha no tiene fibras con título. Edítala en F-CIR-002.
                             </p>
                         )}
-                    </div>
-                    <button onClick={resetGrid}
-                        style={{padding:'7px 14px', borderRadius:8, background:'#7f1d1d',
-                            color:'#fca5a5', border:'1px solid #dc2626', fontWeight:800,
-                            fontSize:11, cursor:'pointer', textTransform:'uppercase'}}>
-                        ⚡ Resetear
-                    </button>
-                </div>
-                {/* Controles */}
-                <div style={{display:'flex', flexWrap:'wrap', gap:12, alignItems:'flex-end'}}>
-                    <div>
-                        <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
-                            textTransform:'uppercase'}}>Ficha (F-CIR-002)</p>
-                        <select value={fichaId} onChange={e => changeFicha(e.target.value)}
-                            style={{minWidth:220, fontWeight:700, fontSize:12}}>
-                            {structures.map(s => (
-                                <option key={s.id} value={s.id}>
-                                    {s.nombrePrenda}{s.header && s.header.referencia ? ' · ' + s.header.referencia : ''}
-                                </option>
-                            ))}
-                        </select>
-                    </div>
-                    <div>
-                        <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
-                            textTransform:'uppercase'}}>Alimentadores</p>
-                        <select value={numAlim} onChange={e => changeAlim(e.target.value)}
-                            style={{fontWeight:700, fontSize:12}}>
-                            {[4,6,8,10,12,16,20,24].map(n =>
-                                <option key={n} value={n}>{n}</option>
-                            )}
-                        </select>
-                    </div>
-                    <div>
-                        <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
-                            textTransform:'uppercase'}}>Guíahilos (GH)</p>
-                        <select value={numGH} onChange={e => changeGH(e.target.value)}
-                            style={{fontWeight:700, fontSize:12}}>
-                            {[3,4,5,6,7,8,9,10,12].map(n =>
-                                <option key={n} value={n}>{n}</option>
-                            )}
-                        </select>
-                    </div>
-                </div>
-            </div>
-
-            {/* ── PALETA DE HILOS ── */}
-            <div style={{background:'#111827', border:'1px solid #1f2937', borderRadius:12,
-                padding:'12px 16px', marginBottom:12}}>
-                <p style={{margin:'0 0 10px', fontSize:9, fontWeight:800, color:'#6b7280',
-                    textTransform:'uppercase', letterSpacing:'0.12em'}}>
-                    SELECCIONA UN HILO → LUEGO HAZ CLIC EN LA CELDA
-                </p>
-                <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center'}}>
-                    {hilosDisp.length === 0 && (
-                        <p style={{color:'#4b5563', fontSize:11, fontStyle:'italic', margin:0}}>
-                            Esta ficha no tiene fibras con título. Edítala en F-CIR-002.
-                        </p>
-                    )}
-                    {hilosDisp.map((h, hi) => {
-                        const col  = getCol(h.nombre);
-                        const cnt  = cuentas[h.titulo || h.nombre] || 0;
-                        const actv = selHilo && selHilo !== 'CLEAR'
-                            && selHilo.titulo === h.titulo && selHilo.nombre === h.nombre;
-                        return (
-                            <button key={hi} onClick={() => setSelHilo(actv ? null : h)}
-                                style={{display:'flex', alignItems:'center', gap:7,
-                                    background: actv ? col.border : col.bg,
-                                    border:'2px solid ' + (actv ? col.text : col.border),
-                                    borderRadius:9, padding:'6px 12px', cursor:'pointer',
-                                    outline:'none', transition:'all 0.15s'}}>
-                                <span style={{width:8, height:8, borderRadius:'50%',
-                                    background: actv ? '#fff' : col.border, flexShrink:0}}/>
-                                <span style={{fontSize:11, fontWeight:800,
-                                    color: actv ? '#fff' : col.text}}>
-                                    {h.titulo}
-                                </span>
-                                <span style={{fontSize:9, color: actv ? '#ffffffaa' : col.border,
-                                    fontWeight:600}}>({h.nombre})</span>
-                                {cnt > 0 && (
-                                    <span style={{background: actv ? '#ffffff33' : col.border+'44',
-                                        color: actv ? '#fff' : col.text,
-                                        fontSize:9, fontWeight:800,
-                                        padding:'1px 6px', borderRadius:99}}>
-                                        {cnt}×
+                        {hilosDisp.map((h, hi) => {
+                            const col  = getCol(h.nombre);
+                            const cnt  = cuentas[h.titulo || h.nombre] || 0;
+                            const actv = selHilo && selHilo !== 'CLEAR'
+                                && selHilo.titulo === h.titulo && selHilo.nombre === h.nombre;
+                            return (
+                                <button key={hi} onClick={() => setSelHilo(actv ? null : h)}
+                                    style={{display:'flex', alignItems:'center', gap:7,
+                                        background: actv ? col.border : col.bg,
+                                        border:'2px solid ' + (actv ? col.text : col.border),
+                                        borderRadius:9, padding:'6px 12px', cursor:'pointer',
+                                        outline:'none', transition:'all 0.15s'}}>
+                                    <span style={{width:8, height:8, borderRadius:'50%',
+                                        background: actv ? '#fff' : col.border, flexShrink:0}}/>
+                                    <span style={{fontSize:11, fontWeight:800,
+                                        color: actv ? '#fff' : col.text}}>
+                                        {h.titulo}
                                     </span>
-                                )}
-                            </button>
+                                    <span style={{fontSize:9, color: actv ? '#ffffffaa' : col.border,
+                                        fontWeight:600}}>({h.nombre})</span>
+                                    {cnt > 0 && (
+                                        <span style={{background: actv ? '#ffffff33' : col.border+'44',
+                                            color: actv ? '#fff' : col.text,
+                                            fontSize:9, fontWeight:800,
+                                            padding:'1px 6px', borderRadius:99}}>
+                                            {cnt}×
+                                        </span>
+                                    )}
+                                </button>
+                            );
+                        })}
+                        {/* Borrador */}
+                        <button onClick={() => setSelHilo(selHilo === 'CLEAR' ? null : 'CLEAR')}
+                            style={{display:'flex', alignItems:'center', gap:6,
+                                background: selHilo === 'CLEAR' ? '#dc2626' : '#1f0a0a',
+                                border:'2px solid #dc2626', borderRadius:9, padding:'6px 12px',
+                                cursor:'pointer', outline:'none', transition:'all 0.15s'}}>
+                            <span style={{color: selHilo === 'CLEAR' ? '#fff' : '#f87171',
+                                fontSize:11, fontWeight:800}}>
+                                ✕ Borrar celda
+                            </span>
+                        </button>
+                    </div>
+    
+                    {/* Indicador hilo activo */}
+                    {selHilo && (
+                        <div style={{marginTop:10, padding:'6px 12px', borderRadius:8,
+                            background: selHilo === 'CLEAR'
+                                ? 'rgba(220,38,38,0.15)' : 'rgba(16,185,129,0.1)',
+                            border: '1px solid ' + (selHilo === 'CLEAR' ? '#dc2626' : '#10b981'),
+                            fontSize:11, fontWeight:700,
+                            color: selHilo === 'CLEAR' ? '#fca5a5' : '#6ee7b7',
+                            display:'inline-block'}}>
+                            {selHilo === 'CLEAR'
+                                ? '✕ Modo borrar — haz clic en cualquier celda para vaciarla'
+                                : '→ Clic en cualquier celda para colocar: ' + selHilo.titulo}
+                        </div>
+                    )}
+                </div>
+    
+                {/* ── MATRIZ ── */}
+                <div style={{overflowX:'auto', borderRadius:12, border:'1px solid #1f2937'}}>
+                    <table style={{borderCollapse:'collapse', minWidth: 100 + numGH * 110, width:'100%'}}>
+                        <thead>
+                            <tr>
+                                <th style={{background:'#0a0e1a', color:'#374151', fontSize:9,
+                                    fontWeight:800, textTransform:'uppercase', padding:'10px 14px',
+                                    border:'1px solid #1f2937', minWidth:80,
+                                    position:'sticky', left:0, zIndex:3}}>
+                                    ALIM.
+                                </th>
+                                {ghs.map(g => (
+                                    <th key={g} style={{
+                                        background: resumenGH[g] ? '#0a1f2e' : '#0a0e1a',
+                                        color: resumenGH[g] ? '#10b981' : '#2a3a50',
+                                        fontSize:9, fontWeight:800, textTransform:'uppercase',
+                                        padding:'8px 6px', border:'1px solid #1f2937',
+                                        minWidth:110, textAlign:'center'}}>
+                                        GH #{g}
+                                        {resumenGH[g] && (
+                                            <div style={{fontSize:7, color:'#4b5563',
+                                                fontWeight:600, marginTop:2, textTransform:'none'}}>
+                                                {Object.keys(resumenGH[g]).map(t =>
+                                                    t.length > 12 ? t.slice(0,10)+'…' : t
+                                                ).join(', ')}
+                                            </div>
+                                        )}
+                                    </th>
+                                ))}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {alims.map(a => (
+                                <tr key={a}>
+                                    <td style={{background:'#0a0e1a', color:'#6b7280', fontSize:10,
+                                        fontWeight:800, padding:'0 14px', border:'1px solid #1f2937',
+                                        textAlign:'center', position:'sticky', left:0, zIndex:1,
+                                        whiteSpace:'nowrap', height:46}}>
+                                        ALIM #{a}
+                                    </td>
+                                    {ghs.map(g => {
+                                        const hilo = grid[ck(a, g)];
+                                        const col  = hilo ? getCol(hilo.nombre) : null;
+                                        const canClick = !!selHilo;
+                                        return (
+                                            <td key={g}
+                                                onClick={() => clickCell(a, g)}
+                                                style={{
+                                                    border:'1px solid #1f2937',
+                                                    background: hilo ? col.bg : '#0a0e1a',
+                                                    padding:'4px 6px', textAlign:'center',
+                                                    minWidth:110, height:46,
+                                                    cursor: canClick ? 'pointer' : 'default',
+                                                    transition:'background 0.1s',
+                                                    outline: canClick ? '2px dashed #10b98133' : 'none',
+                                                }}>
+                                                {hilo ? (
+                                                    <div style={{display:'flex', alignItems:'center',
+                                                        justifyContent:'center', gap:4}}>
+                                                        <span style={{width:6, height:6, borderRadius:'50%',
+                                                            background:col.border, flexShrink:0}}/>
+                                                        <span style={{fontSize:10, fontWeight:800,
+                                                            color:col.text, lineHeight:1.2}}>
+                                                            {(hilo.titulo||hilo.nombre).length > 16
+                                                                ? (hilo.titulo||hilo.nombre).slice(0,14)+'…'
+                                                                : (hilo.titulo||hilo.nombre)}
+                                                        </span>
+                                                        <button
+                                                            onClick={e => { e.stopPropagation(); clearCell(a,g); }}
+                                                            style={{marginLeft:2, background:'none', border:'none',
+                                                                color:'#4b5563', cursor:'pointer', fontSize:12,
+                                                                lineHeight:1, padding:'0 2px',
+                                                                opacity:0.6}}
+                                                            title="Borrar celda">×</button>
+                                                    </div>
+                                                ) : (
+                                                    <span style={{color: canClick ? '#2a3a50' : '#1a2535',
+                                                        fontSize:14}}>—</span>
+                                                )}
+                                            </td>
+                                        );
+                                    })}
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+    
+                {/* ── INSTRUCCIONES ── */}
+                <div style={{marginTop:12, display:'flex', flexWrap:'wrap', gap:16,
+                    fontSize:10, color:'#374151'}}>
+                    {[
+                        ['Seleccionar hilo', 'Haz clic en un hilo de la paleta (queda resaltado)'],
+                        ['Colocar en celda', 'Haz clic en cualquier celda de la matriz'],
+                        ['Borrar celda',     'Usa "✕ Borrar celda" o el × dentro de cada celda'],
+                        ['Cambiar ficha',    'Cada ficha guarda su propio enhebrado automáticamente'],
+                    ].map(function(item, i) {
+                        return (
+                            <div key={i} style={{display:'flex', gap:6, alignItems:'flex-start'}}>
+                                <span style={{color:'#10b981', fontWeight:800, flexShrink:0}}>→</span>
+                                <span>
+                                    <strong style={{color:'#6b7280'}}>{item[0]}:</strong> {item[1]}
+                                </span>
+                            </div>
                         );
                     })}
-                    {/* Borrador */}
-                    <button onClick={() => setSelHilo(selHilo === 'CLEAR' ? null : 'CLEAR')}
-                        style={{display:'flex', alignItems:'center', gap:6,
-                            background: selHilo === 'CLEAR' ? '#dc2626' : '#1f0a0a',
-                            border:'2px solid #dc2626', borderRadius:9, padding:'6px 12px',
-                            cursor:'pointer', outline:'none', transition:'all 0.15s'}}>
-                        <span style={{color: selHilo === 'CLEAR' ? '#fff' : '#f87171',
-                            fontSize:11, fontWeight:800}}>
-                            ✕ Borrar celda
-                        </span>
-                    </button>
                 </div>
-
-                {/* Indicador hilo activo */}
-                {selHilo && (
-                    <div style={{marginTop:10, padding:'6px 12px', borderRadius:8,
-                        background: selHilo === 'CLEAR'
-                            ? 'rgba(220,38,38,0.15)' : 'rgba(16,185,129,0.1)',
-                        border: '1px solid ' + (selHilo === 'CLEAR' ? '#dc2626' : '#10b981'),
-                        fontSize:11, fontWeight:700,
-                        color: selHilo === 'CLEAR' ? '#fca5a5' : '#6ee7b7',
-                        display:'inline-block'}}>
-                        {selHilo === 'CLEAR'
-                            ? '✕ Modo borrar — haz clic en cualquier celda para vaciarla'
-                            : '→ Clic en cualquier celda para colocar: ' + selHilo.titulo}
-                    </div>
-                )}
             </div>
-
-            {/* ── MATRIZ ── */}
-            <div style={{overflowX:'auto', borderRadius:12, border:'1px solid #1f2937'}}>
-                <table style={{borderCollapse:'collapse', minWidth: 100 + numGH * 110, width:'100%'}}>
-                    <thead>
-                        <tr>
-                            <th style={{background:'#0a0e1a', color:'#374151', fontSize:9,
-                                fontWeight:800, textTransform:'uppercase', padding:'10px 14px',
-                                border:'1px solid #1f2937', minWidth:80,
-                                position:'sticky', left:0, zIndex:3}}>
-                                ALIM.
-                            </th>
-                            {ghs.map(g => (
-                                <th key={g} style={{
-                                    background: resumenGH[g] ? '#0a1f2e' : '#0a0e1a',
-                                    color: resumenGH[g] ? '#10b981' : '#2a3a50',
-                                    fontSize:9, fontWeight:800, textTransform:'uppercase',
-                                    padding:'8px 6px', border:'1px solid #1f2937',
-                                    minWidth:110, textAlign:'center'}}>
-                                    GH #{g}
-                                    {resumenGH[g] && (
-                                        <div style={{fontSize:7, color:'#4b5563',
-                                            fontWeight:600, marginTop:2, textTransform:'none'}}>
-                                            {Object.keys(resumenGH[g]).map(t =>
-                                                t.length > 12 ? t.slice(0,10)+'…' : t
-                                            ).join(', ')}
-                                        </div>
-                                    )}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {alims.map(a => (
-                            <tr key={a}>
-                                <td style={{background:'#0a0e1a', color:'#6b7280', fontSize:10,
-                                    fontWeight:800, padding:'0 14px', border:'1px solid #1f2937',
-                                    textAlign:'center', position:'sticky', left:0, zIndex:1,
-                                    whiteSpace:'nowrap', height:46}}>
-                                    ALIM #{a}
-                                </td>
-                                {ghs.map(g => {
-                                    const hilo = grid[ck(a, g)];
-                                    const col  = hilo ? getCol(hilo.nombre) : null;
-                                    const canClick = !!selHilo;
-                                    return (
-                                        <td key={g}
-                                            onClick={() => clickCell(a, g)}
-                                            style={{
-                                                border:'1px solid #1f2937',
-                                                background: hilo ? col.bg : '#0a0e1a',
-                                                padding:'4px 6px', textAlign:'center',
-                                                minWidth:110, height:46,
-                                                cursor: canClick ? 'pointer' : 'default',
-                                                transition:'background 0.1s',
-                                                outline: canClick ? '2px dashed #10b98133' : 'none',
-                                            }}>
-                                            {hilo ? (
-                                                <div style={{display:'flex', alignItems:'center',
-                                                    justifyContent:'center', gap:4}}>
-                                                    <span style={{width:6, height:6, borderRadius:'50%',
-                                                        background:col.border, flexShrink:0}}/>
-                                                    <span style={{fontSize:10, fontWeight:800,
-                                                        color:col.text, lineHeight:1.2}}>
-                                                        {(hilo.titulo||hilo.nombre).length > 16
-                                                            ? (hilo.titulo||hilo.nombre).slice(0,14)+'…'
-                                                            : (hilo.titulo||hilo.nombre)}
-                                                    </span>
-                                                    <button
-                                                        onClick={e => { e.stopPropagation(); clearCell(a,g); }}
-                                                        style={{marginLeft:2, background:'none', border:'none',
-                                                            color:'#4b5563', cursor:'pointer', fontSize:12,
-                                                            lineHeight:1, padding:'0 2px',
-                                                            opacity:0.6}}
-                                                        title="Borrar celda">×</button>
-                                                </div>
-                                            ) : (
-                                                <span style={{color: canClick ? '#2a3a50' : '#1a2535',
-                                                    fontSize:14}}>—</span>
-                                            )}
-                                        </td>
-                                    );
-                                })}
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
-            </div>
-
-            {/* ── INSTRUCCIONES ── */}
-            <div style={{marginTop:12, display:'flex', flexWrap:'wrap', gap:16,
-                fontSize:10, color:'#374151'}}>
-                {[
-                    ['Seleccionar hilo', 'Haz clic en un hilo de la paleta (queda resaltado)'],
-                    ['Colocar en celda', 'Haz clic en cualquier celda de la matriz'],
-                    ['Borrar celda',     'Usa "✕ Borrar celda" o el × dentro de cada celda'],
-                    ['Cambiar ficha',    'Cada ficha guarda su propio enhebrado automáticamente'],
-                ].map(function(item, i) {
-                    return (
-                        <div key={i} style={{display:'flex', gap:6, alignItems:'flex-start'}}>
-                            <span style={{color:'#10b981', fontWeight:800, flexShrink:0}}>→</span>
-                            <span>
-                                <strong style={{color:'#6b7280'}}>{item[0]}:</strong> {item[1]}
-                            </span>
-                        </div>
-                    );
-                })}
-            </div>
-        </div>
-    );
-};
+        );
+    };
 
 
 
