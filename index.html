@@ -1375,7 +1375,25 @@ const EnhebradoTab = ({ structures }) => {
         };
 
         /* ── Toggle columna anchos/largos ── */
-        const toggleCol = (fichaId, field, col) => {
+        /* Renombrar una columna — guarda nombre personalizado sin perder los datos */
+        const updColNombre = (fichaId, nombresField, colKey, nombre) => {
+            setFichas(function(prev) {
+                var n = prev.map(function(f) {
+                    if (f.id !== fichaId) return f;
+                    var nombres = Object.assign({}, f[nombresField]||{});
+                    nombres[colKey] = nombre;
+                    var updated = Object.assign({}, f, {[nombresField]: nombres});
+                    return updated;
+                });
+                save(n);
+                // Sync to Firebase
+                var updated = n.find(function(f){ return f.id === fichaId; });
+                if (updated) fbGuardarFicha(updated).catch(function(){});
+                return n;
+            });
+        };
+
+                const toggleCol = (fichaId, field, col) => {
             const f = fichas.find(x=>x.id===fichaId);
             if (!f) return;
             const arr = f[field]||[];
