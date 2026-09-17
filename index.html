@@ -2180,68 +2180,152 @@ const EnhebradoTab = ({ structures }) => {
                         {/* ── PANEL ENVÍO PARA APROBACIÓN ── */}
                         <div style={{
                             background:'linear-gradient(135deg,#0a1628,#0d1f35)',
-                            border:'1.5px solid #2563eb', borderRadius:14,
-                            padding:'16px 20px', marginBottom:12
-                        }}>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:10}}>
+                            border:'1.5px solid #2563eb',borderRadius:14,
+                            padding:'16px 20px',marginBottom:12}}>
+
+                            {/* Header */}
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
                                 <div>
                                     <p style={{margin:0,fontSize:11,fontWeight:800,color:'#93c5fd',textTransform:'uppercase',letterSpacing:'0.1em'}}>
                                         📧 Enviar para Aprobación de Jefaturas
                                     </p>
                                     <p style={{margin:'3px 0 0',fontSize:10,color:'#4b5563'}}>
-                                        Se enviará un correo a cada jefatura con un link personalizado para aprobar
+                                        Selecciona quién debe aprobar esta referencia
                                     </p>
                                 </div>
+                                {fbSyncStatus[ficha.id] && (
+                                    <span style={{fontSize:9,padding:'3px 10px',borderRadius:99,fontWeight:700,
+                                        background:fbSyncStatus[ficha.id]==='synced'?'#065f46':fbSyncStatus[ficha.id]==='syncing'?'#1e3a5f':'#7f1d1d',
+                                        color:fbSyncStatus[ficha.id]==='synced'?'#6ee7b7':fbSyncStatus[ficha.id]==='syncing'?'#93c5fd':'#fca5a5'}}>
+                                        {fbSyncStatus[ficha.id]==='synced'?'☁ Guardado':fbSyncStatus[ficha.id]==='syncing'?'⏳ Guardando...':'⚠ Error nube'}
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Selector de aprobadores */}
+                            <p style={{margin:'0 0 8px',fontSize:9,fontWeight:800,color:'#6b7280',textTransform:'uppercase'}}>
+                                ¿Quién debe aprobar esta referencia?
+                            </p>
+                            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
+                                {[
+                                    {key:'BF-3817',nombre:'Bella Forero',    rol:'Armado y Calidad',col:'#3b82f6'},
+                                    {key:'MA-6524',nombre:'Marisol Álvarez', rol:'Corsetería',       col:'#10b981'},
+                                    {key:'PL-9043',nombre:'Paola López',     rol:'Calidad',          col:'#f59e0b'},
+                                    {key:'CP-7261',nombre:'Camila Prias',    rol:'Diseño',           col:'#ec4899'},
+                                ].map(function(item){
+                                    var sel = rolesSelec[item.key];
+                                    var aprKey = item.key==='BF-3817'?'aproboArmado':item.key==='MA-6524'?'aproboCorseteria':item.key==='PL-9043'?'aproboCalidad':'aproboDiseno';
+                                    var apr = ficha[aprKey]||{};
+                                    return (
+                                        <button key={item.key}
+                                            onClick={function(){
+                                                setRolesSelec(function(prev){
+                                                    var n=Object.assign({},prev);
+                                                    n[item.key]=!n[item.key];
+                                                    return n;
+                                                });
+                                            }}
+                                            style={{padding:'7px 14px',borderRadius:9,cursor:'pointer',
+                                                border:'2px solid '+(sel?item.col:'#374151'),
+                                                background:sel?item.col+'22':'#1f2937',
+                                                color:sel?item.col:'#4b5563',
+                                                fontWeight:800,fontSize:10,
+                                                display:'flex',alignItems:'center',gap:6}}>
+                                            <span style={{width:14,height:14,borderRadius:3,
+                                                background:sel?item.col:'transparent',
+                                                border:'2px solid '+(sel?item.col:'#374151'),
+                                                display:'inline-flex',alignItems:'center',
+                                                justifyContent:'center',fontSize:10,color:'#fff'}}>
+                                                {sel?'✓':''}
+                                            </span>
+                                            {item.nombre}
+                                            {apr.bloqueado && <span style={{fontSize:8,background:'#065f46',color:'#6ee7b7',padding:'1px 5px',borderRadius:99}}>✓</span>}
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                            <p style={{margin:'0 0 14px',fontSize:9,color:'#374151'}}>
+                                {Object.values(rolesSelec).filter(Boolean).length} aprobador(es) seleccionado(s)
+                            </p>
+
+                            {/* Botones acción */}
+                            <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
                                 <button
-                                    disabled={enviando || !ficha.producto}
-                                    onClick={()=>enviarTodasLasAprobaciones(ficha, setEnviando, setResultado)}
-                                    style={{
-                                        padding:'10px 20px', borderRadius:10, border:'none',
-                                        background: enviando?'#374151':'#2563eb',
-                                        color:'#fff', fontWeight:800, fontSize:12,
-                                        cursor: enviando||!ficha.producto?'not-allowed':'pointer',
-                                        textTransform:'uppercase', letterSpacing:'0.06em',
-                                        display:'flex', alignItems:'center', gap:8,
-                                        opacity: !ficha.producto?0.5:1
-                                    }}>
-                                    {enviando ? '⏳ Enviando...' : '📤 Enviar Correos de Aprobación'}
+                                    disabled={enviando||!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0}
+                                    onClick={async function(){
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
+                                        var r = await fbGuardarFicha(ficha);
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
+                                        if (!r.ok){ alert('Error guardando en nube: '+r.err); return; }
+                                        // Escuchar cambios en tiempo real
+                                        var unsub = fbEscucharFicha(ficha.id, function(data){
+                                            setFichas(function(prev){
+                                                var n=prev.map(function(f){return f.id===data.id?data:f;});
+                                                save(n); return n;
+                                            });
+                                        });
+                                        // Enviar solo a los seleccionados
+                                        var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
+                                        await enviarTodasLasAprobaciones(ficha, setEnviando, setResultado, rolesArr);
+                                    }}
+                                    style={{padding:'10px 20px',borderRadius:10,border:'none',
+                                        background:enviando?'#374151':'#2563eb',color:'#fff',
+                                        fontWeight:800,fontSize:12,cursor:'pointer',
+                                        opacity:!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
+                                    {enviando?'⏳ Enviando...':'📤 Enviar Correos'}
+                                </button>
+
+                                <button
+                                    onClick={async function(){
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
+                                        var r = await fbGuardarFicha(ficha);
+                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
+                                        if(r.ok){
+                                            // Start listening for signatures
+                                            fbEscucharFicha(ficha.id, function(data){
+                                                setFichas(function(prev){
+                                                    var n=prev.map(function(f){return f.id===data.id?data:f;});
+                                                    save(n); return n;
+                                                });
+                                            });
+                                        }
+                                    }}
+                                    style={{padding:'10px 16px',borderRadius:10,
+                                        border:'1px solid #374151',background:'#1f2937',
+                                        color:'#9ca3af',fontWeight:700,fontSize:11,cursor:'pointer'}}>
+                                    ☁ Guardar en nube
                                 </button>
                             </div>
 
-                            {/* Links individuales por jefatura */}
+                            {/* Links individuales */}
                             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8,marginBottom:resultado?12:0}}>
                                 {[
                                     {key:'BF-3817',label:'Armado y Calidad',col:'#3b82f6'},
-                                    {key:'MA-6524',label:'Corsetería',       col:'#10b981'},
-                                    {key:'PL-9043',label:'Calidad',          col:'#f59e0b'},
-                                    {key:'CP-7261',label:'Diseño',           col:'#ec4899'},
-                                ].map(function(item){
-                                    const apr = ficha[
-                                        item.key==='BF-3817'?'aproboArmado':
-                                        item.key==='MA-6524'?'aproboCorseteria':
-                                        item.key==='PL-9043'?'aproboCalidad':'aproboDiseno'
-                                    ]||{};
-                                    const link = ficha.producto ? fichaToLink(ficha, item.key) : '';
+                                    {key:'MA-6524',label:'Corsetería',      col:'#10b981'},
+                                    {key:'PL-9043',label:'Calidad',         col:'#f59e0b'},
+                                    {key:'CP-7261',label:'Diseño',          col:'#ec4899'},
+                                ].filter(function(item){return rolesSelec[item.key];}).map(function(item){
+                                    var link = ficha.producto ? fichaToLink(ficha, item.key) : '';
+                                    var aprKey = item.key==='BF-3817'?'aproboArmado':item.key==='MA-6524'?'aproboCorseteria':item.key==='PL-9043'?'aproboCalidad':'aproboDiseno';
+                                    var apr = ficha[aprKey]||{};
                                     return (
-                                        <div key={item.key} style={{
-                                            background:'#0d1520', border:'1px solid '+item.col+'44',
-                                            borderRadius:8, padding:'8px 12px',
-                                            display:'flex', flexDirection:'column', gap:4
-                                        }}>
-                                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                                <span style={{fontSize:10,fontWeight:800,color:item.col,textTransform:'uppercase'}}>{item.label}</span>
-                                                {apr.bloqueado && <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>}
+                                        <div key={item.key} style={{background:'#0d1520',border:'1px solid '+item.col+'44',borderRadius:8,padding:'8px 12px'}}>
+                                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
+                                                <span style={{fontSize:10,fontWeight:800,color:item.col}}>{item.label}</span>
+                                                {apr.bloqueado
+                                                    ? <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>
+                                                    : <span style={{fontSize:9,color:'#374151'}}>Pendiente</span>
+                                                }
                                             </div>
                                             {link && (
-                                                <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                                                <div style={{display:'flex',gap:5}}>
                                                     <input readOnly value={link}
-                                                        style={{flex:1,fontSize:8,padding:'3px 6px',
-                                                            background:'#0a0e1a',border:'1px solid #1f2937',
-                                                            borderRadius:4,color:'#6b7280',fontFamily:'monospace',
-                                                            overflow:'hidden',textOverflow:'ellipsis'}}/>
-                                                    <button onClick={()=>navigator.clipboard.writeText(link)}
+                                                        style={{flex:1,fontSize:8,padding:'3px 6px',background:'#0a0e1a',
+                                                            border:'1px solid #1f2937',borderRadius:4,color:'#6b7280',
+                                                            fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis'}}/>
+                                                    <button onClick={function(){navigator.clipboard.writeText(link);}}
                                                         style={{padding:'3px 8px',borderRadius:4,background:item.col,
-                                                            color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
+                                                            color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer'}}>
                                                         Copiar
                                                     </button>
                                                 </div>
@@ -2251,34 +2335,18 @@ const EnhebradoTab = ({ structures }) => {
                                 })}
                             </div>
 
-                            {/* Resultado del envío */}
+                            {/* Resultado */}
                             {resultado && (
                                 <div style={{borderTop:'1px solid #1f2937',paddingTop:10}}>
-                                    <p style={{margin:'0 0 8px',fontSize:10,fontWeight:800,color:'#9ca3af',textTransform:'uppercase'}}>
-                                        Resultado del envío:
-                                    </p>
                                     {resultado.map(function(r,ri){
                                         return (
-                                            <div key={ri} style={{
-                                                display:'flex',alignItems:'center',gap:8,
-                                                padding:'5px 10px',borderRadius:6,marginBottom:4,
+                                            <div key={ri} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 10px',borderRadius:6,marginBottom:4,
                                                 background:r.ok?'rgba(16,185,129,0.08)':'rgba(220,38,38,0.08)',
-                                                border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')
-                                            }}>
-                                                <span style={{fontSize:14}}>{r.ok?'✅':'❌'}</span>
-                                                <div style={{flex:1}}>
-                                                    <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
-                                                        {r.nombre} ({r.rol})
-                                                    </span>
-                                                    {!r.ok && r.error && (
-                                                        <span style={{fontSize:9,color:'#6b7280',marginLeft:8}}>{r.error}</span>
-                                                    )}
-                                                    {r.ok && r.link && false /* emailjs configurado */ && (
-                                                        <span style={{fontSize:8,color:'#6b7280',marginLeft:8}}>
-                                                            (EmailJS no configurado — usa el link Copiar)
-                                                        </span>
-                                                    )}
-                                                </div>
+                                                border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')}}>
+                                                <span>{r.ok?'✅':'❌'}</span>
+                                                <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
+                                                    {r.nombre} ({r.rol})
+                                                </span>
                                             </div>
                                         );
                                     })}
@@ -2286,7 +2354,7 @@ const EnhebradoTab = ({ structures }) => {
                             )}
                         </div>
 
-                        <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
+                                                <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             <div style={S.secHdr}><span>FIRMAS Y APROBACIÓN</span></div>
                             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:1,background:'#1f2937'}}>
 
@@ -2622,7 +2690,7 @@ const EnhebradoTab = ({ structures }) => {
                                             </p>
                                         ) : (
                                             <div style={{overflowX:'auto'}}>
-                                                <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
+                                                <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,tableLayout:'fixed'}}>
                                                     <thead>
                                                         <tr>
                                                             <th rowSpan={2} style={{background:'#78350f',color:'#fef3c7',fontSize:10,
@@ -2713,8 +2781,9 @@ const EnhebradoTab = ({ structures }) => {
                                                                                             mt2[talla][lim][col]=v;
                                                                                             upd(ficha.id,'medidasTerminado',mt2);
                                                                                         }}
-                                                                                        style={{width:52,background:'transparent',
+                                                                                        style={{width:'100%',background:'transparent',
                                                                                             border:'none',outline:'none',
+                                                                                            boxSizing:'border-box',
                                                                                             color:isEdge?'#ef4444':'#e2e8f0',
                                                                                             fontSize:11,textAlign:'center',
                                                                                             padding:'4px 2px',
