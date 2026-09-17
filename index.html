@@ -1997,7 +1997,8 @@ const EnhebradoTab = ({ structures }) => {
                                         {ANCHOS_DEF.map(function(col){
                                             var on=(ficha.anchosActivos||[]).includes(col);
                                             return (
-                                                <button key={col} onClick={function(){toggleCol(ficha.id,'anchosActivos',col);}}
+                                                <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                                                    <button key={col} onClick={function(){toggleCol(ficha.id,'anchosActivos',col);}}
                                                     title={on?'Desactivar columna':'Activar columna'}
                                                     style={{padding:'5px 12px',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer',
                                                         border:'2px solid '+(on?'#3b82f6':'#374151'),
@@ -2006,6 +2007,18 @@ const EnhebradoTab = ({ structures }) => {
                                                     {on?'✓ ':''}
                                                     {col}
                                                 </button>
+                                                    {on && (
+                                                        <input
+                                                            value={(ficha.anchosNombres||{})[col]||''}
+                                                            onChange={function(e){updColNombre(ficha.id,'anchosNombres',col,e.target.value);}}
+                                                            placeholder={col}
+                                                            title="Renombrar columna"
+                                                            style={{fontSize:9,padding:'2px 6px',borderRadius:5,
+                                                                background:'#0d1520',border:'1px solid #1e3a5f',
+                                                                color:'#93c5fd',width:'100%',boxSizing:'border-box',
+                                                                outline:'none',textAlign:'center'}}/>
+                                                    )}
+                                                </div>
                                             );
                                         })}
                                     </div>
@@ -2019,7 +2032,8 @@ const EnhebradoTab = ({ structures }) => {
                                         {LARGOS_DEF.map(function(col){
                                             var on=(ficha.largosActivos||[]).includes(col);
                                             return (
-                                                <button key={col} onClick={function(){toggleCol(ficha.id,'largosActivos',col);}}
+                                                <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                                                    <button key={col} onClick={function(){toggleCol(ficha.id,'largosActivos',col);}}
                                                     title={on?'Desactivar columna':'Activar columna'}
                                                     style={{padding:'5px 12px',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer',
                                                         border:'2px solid '+(on?'#10b981':'#374151'),
@@ -2028,6 +2042,18 @@ const EnhebradoTab = ({ structures }) => {
                                                     {on?'✓ ':''}
                                                     {col}
                                                 </button>
+                                                    {on && (
+                                                        <input
+                                                            value={(ficha.largosNombres||{})[col]||''}
+                                                            onChange={function(e){updColNombre(ficha.id,'largosNombres',col,e.target.value);}}
+                                                            placeholder={col}
+                                                            title="Renombrar columna"
+                                                            style={{fontSize:9,padding:'2px 6px',borderRadius:5,
+                                                                background:'#0d1520',border:'1px solid #064e3b',
+                                                                color:'#6ee7b7',width:'100%',boxSizing:'border-box',
+                                                                outline:'none',textAlign:'center'}}/>
+                                                    )}
+                                                </div>
                                             );
                                         })}
                                     </div>
@@ -2708,7 +2734,8 @@ const EnhebradoTab = ({ structures }) => {
                                                     {ANCHOS_TERM.map(function(col){
                                                         var on=(ficha.anchosTermActivos||[]).includes(col);
                                                         return (
-                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'anchosTermActivos',col);}}
+                                                            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                                                    <button key={col} onClick={function(){toggleCol(ficha.id,'anchosTermActivos',col);}}
                                                                 style={{padding:'5px 12px',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer',
                                                                     border:'2px solid '+(on?'#f59e0b':'#374151'),
                                                                     background:on?'#451a03':'#111827',
@@ -2717,6 +2744,18 @@ const EnhebradoTab = ({ structures }) => {
                                                                 {on?'✓ ':''}
                                                                 {col}
                                                             </button>
+                                                    {on && (
+                                                        <input
+                                                            value={(ficha.anchosTermNombres||{})[col]||''}
+                                                            onChange={function(e){updColNombre(ficha.id,'anchosTermNombres',col,e.target.value);}}
+                                                            placeholder={col}
+                                                            title="Renombrar columna"
+                                                            style={{fontSize:9,padding:'2px 6px',borderRadius:5,
+                                                                background:'#0d1520',border:'1px solid #92400e',
+                                                                color:'#fcd34d',width:'100%',boxSizing:'border-box',
+                                                                outline:'none',textAlign:'center'}}/>
+                                                    )}
+                                                </div>
                                                         );
                                                     })}
                                                 </div>
@@ -2731,7 +2770,8 @@ const EnhebradoTab = ({ structures }) => {
                                                     {LARGOS_TERM.map(function(col){
                                                         var on=(ficha.largosTermActivos||[]).includes(col);
                                                         return (
-                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'largosTermActivos',col);}}
+                                                            <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                                                    <button key={col} onClick={function(){toggleCol(ficha.id,'largosTermActivos',col);}}
                                                                 style={{padding:'5px 12px',borderRadius:8,fontSize:10,fontWeight:700,cursor:'pointer',
                                                                     border:'2px solid '+(on?'#ec4899':'#374151'),
                                                                     background:on?'#500724':'#111827',
@@ -2740,6 +2780,18 @@ const EnhebradoTab = ({ structures }) => {
                                                                 {on?'✓ ':''}
                                                                 {col}
                                                             </button>
+                                                    {on && (
+                                                        <input
+                                                            value={(ficha.largosTermNombres||{})[col]||''}
+                                                            onChange={function(e){updColNombre(ficha.id,'largosTermNombres',col,e.target.value);}}
+                                                            placeholder={col}
+                                                            title="Renombrar columna"
+                                                            style={{fontSize:9,padding:'2px 6px',borderRadius:5,
+                                                                background:'#0d1520',border:'1px solid #500724',
+                                                                color:'#fbcfe8',width:'100%',boxSizing:'border-box',
+                                                                outline:'none',textAlign:'center'}}/>
+                                                    )}
+                                                </div>
                                                         );
                                                     })}
                                                 </div>
