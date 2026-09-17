@@ -1277,7 +1277,6 @@ const EnhebradoTab = ({ structures }) => {
                 const n = prev.map(f => f.id===id ? Object.assign({},f,{[field]:val}) : f);
                 save(n);
                 const sensitiveFields = ['anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
-                    'anchosNombres','largosNombres','anchosTermNombres','largosTermNombres',
                     'medidasCrudo','medidasReposo','medidasTerminado','aproboArmado',
                     'aproboCorseteria','aproboCalidad','aproboDiseno','confeccion','estructura'];
                 if (sensitiveFields.indexOf(field) >= 0) {
@@ -1937,50 +1936,81 @@ const EnhebradoTab = ({ structures }) => {
                         {/* ─── CONFIGURAR COLUMNAS + 3. MEDIDAS EN CRUDO ─── */}
                         {/* Config columnas */}
                         <div style={Object.assign({},S.card,{marginBottom:8})}>
-                            <span style={S.lbl}>⚙ Configurar columnas — Punto 3: Medidas en Crudo</span>
+                            <span style={S.lbl}>⚙ Columnas — Punto 3: Medidas en Crudo</span>
                             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
                                 <div>
-                                    <span style={{fontSize:10,fontWeight:700,color:'#3b82f6',display:'block',marginBottom:6}}>ANCHOS (cm)</span>
-                                    <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                                        {ANCHOS_DEF.map(function(col){
-                                            var on=(ficha.anchosActivos||[]).includes(col);
-                                            return (
-                                                <button key={col} onClick={function(){toggleCol(ficha.id,'anchosActivos',col);}}
-                                                    style={{padding:'3px 10px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
-                                                        border:'1px solid '+(on?'#3b82f6':'#374151'),
-                                                        background:on?'#1e3a5f':'#1f2937',color:on?'#93c5fd':'#6b7280'}}>
-                                                    {col}
-                                                </button>
-                                            );
-                                        })}
+                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                                        <span style={{fontSize:10,fontWeight:700,color:'#3b82f6'}}>ANCHOS (cm)</span>
+                                        <button onClick={function(){
+                                            upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).concat('Nueva columna'));
+                                        }} style={{padding:'3px 10px',borderRadius:6,background:'#1e3a5f',
+                                            color:'#93c5fd',border:'1px solid #3b82f6',fontSize:10,
+                                            fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
                                     </div>
-                                    <input value={ficha.anchoExtra||''} onChange={function(e){upd(ficha.id,'anchoExtra',e.target.value);}}
-                                        placeholder="Columna personalizada de ancho..."
-                                        style={Object.assign({},S.inp,{fontSize:10})}/>
+                                    {(ficha.anchosActivos||[]).map(function(col,ci){
+                                        return (
+                                            <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
+                                                <input value={col}
+                                                    onChange={function(e){
+                                                        var v=e.target.value;
+                                                        var arr=(ficha.anchosActivos||[]).map(function(x,xi){return xi===ci?v:x;});
+                                                        upd(ficha.id,'anchosActivos',arr);
+                                                    }}
+                                                    style={{flex:1,background:'#0d1520',border:'1px solid #1e3a5f',
+                                                        color:'#93c5fd',borderRadius:6,padding:'5px 10px',
+                                                        fontSize:11,outline:'none'}}/>
+                                                <button onClick={function(){
+                                                    upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).filter(function(_,xi){return xi!==ci;}));
+                                                }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
+                                                    borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
+                                                    fontSize:12,flexShrink:0}}>×</button>
+                                            </div>
+                                        );
+                                    })}
+                                    {(!ficha.anchosActivos||ficha.anchosActivos.length===0) && (
+                                        <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>
+                                            Sin columnas. Usa "+ Añadir".
+                                        </p>
+                                    )}
                                 </div>
                                 <div>
-                                    <span style={{fontSize:10,fontWeight:700,color:'#10b981',display:'block',marginBottom:6}}>LARGOS (cm)</span>
-                                    <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                                        {LARGOS_DEF.map(function(col){
-                                            var on=(ficha.largosActivos||[]).includes(col);
-                                            return (
-                                                <button key={col} onClick={function(){toggleCol(ficha.id,'largosActivos',col);}}
-                                                    style={{padding:'3px 10px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
-                                                        border:'1px solid '+(on?'#10b981':'#374151'),
-                                                        background:on?'#064e3b':'#1f2937',color:on?'#6ee7b7':'#6b7280'}}>
-                                                    {col}
-                                                </button>
-                                            );
-                                        })}
+                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                                        <span style={{fontSize:10,fontWeight:700,color:'#10b981'}}>LARGOS (cm)</span>
+                                        <button onClick={function(){
+                                            upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).concat('Nueva columna'));
+                                        }} style={{padding:'3px 10px',borderRadius:6,background:'#064e3b',
+                                            color:'#6ee7b7',border:'1px solid #10b981',fontSize:10,
+                                            fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
                                     </div>
-                                    <input value={ficha.largoExtra||''} onChange={function(e){upd(ficha.id,'largoExtra',e.target.value);}}
-                                        placeholder="Columna personalizada de largo..."
-                                        style={Object.assign({},S.inp,{fontSize:10})}/>
+                                    {(ficha.largosActivos||[]).map(function(col,ci){
+                                        return (
+                                            <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
+                                                <input value={col}
+                                                    onChange={function(e){
+                                                        var v=e.target.value;
+                                                        var arr=(ficha.largosActivos||[]).map(function(x,xi){return xi===ci?v:x;});
+                                                        upd(ficha.id,'largosActivos',arr);
+                                                    }}
+                                                    style={{flex:1,background:'#0d1520',border:'1px solid #064e3b',
+                                                        color:'#6ee7b7',borderRadius:6,padding:'5px 10px',
+                                                        fontSize:11,outline:'none'}}/>
+                                                <button onClick={function(){
+                                                    upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).filter(function(_,xi){return xi!==ci;}));
+                                                }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
+                                                    borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
+                                                    fontSize:12,flexShrink:0}}>×</button>
+                                            </div>
+                                        );
+                                    })}
+                                    {(!ficha.largosActivos||ficha.largosActivos.length===0) && (
+                                        <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>
+                                            Sin columnas. Usa "+ Añadir".
+                                        </p>
+                                    )}
                                 </div>
                             </div>
                         </div>
-
-                        {/* TABLA PRINCIPAL PUNTO 3 */}
+                                                {/* TABLA PRINCIPAL PUNTO 3 */}
                         <div style={{background:'#0a1a0f',border:'2px solid #166534',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             {/* Header verde como en imagen */}
                             <div style={{background:'#14532d',padding:'8px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2505,49 +2535,73 @@ const EnhebradoTab = ({ structures }) => {
                                 <div style={{marginBottom:12}}>
                                     {/* Config columnas terminado */}
                                     <div style={Object.assign({},S.card,{marginBottom:8,borderColor:'#1e3a5f'})}>
-                                        <span style={S.lbl}>⚙ Configurar columnas — Punto 5: Medidas en Terminado</span>
+                                        <span style={S.lbl}>⚙ Columnas — Punto 5: Medidas en Terminado</span>
                                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
                                             <div>
-                                                <span style={{fontSize:10,fontWeight:700,color:'#f59e0b',display:'block',marginBottom:6}}>ANCHOS (cm)</span>
-                                                <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                                                    {ANCHOS_TERM.map(function(col){
-                                                        var on=(ficha.anchosTermActivos||[]).includes(col);
-                                                        return (
-                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'anchosTermActivos',col);}}
-                                                                style={{padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
-                                                                    border:'1px solid '+(on?'#f59e0b':'#374151'),
-                                                                    background:on?'#451a03':'#1f2937',
-                                                                    color:on?'#fcd34d':'#6b7280'}}>
-                                                                {col}
-                                                            </button>
-                                                        );
-                                                    })}
+                                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                                                    <span style={{fontSize:10,fontWeight:700,color:'#f59e0b'}}>ANCHOS (cm)</span>
+                                                    <button onClick={function(){
+                                                        upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).concat('Nueva columna'));
+                                                    }} style={{padding:'3px 10px',borderRadius:6,background:'#451a03',
+                                                        color:'#fcd34d',border:'1px solid #f59e0b',fontSize:10,
+                                                        fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
                                                 </div>
-                                                <input value={ficha.anchoTermExtra||''}
-                                                    onChange={function(e){upd(ficha.id,'anchoTermExtra',e.target.value);}}
-                                                    placeholder="Columna personalizada..."
-                                                    style={Object.assign({},S.inp,{fontSize:10})}/>
+                                                {(ficha.anchosTermActivos||[]).map(function(col,ci){
+                                                    return (
+                                                        <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
+                                                            <input value={col}
+                                                                onChange={function(e){
+                                                                    var v=e.target.value;
+                                                                    var arr=(ficha.anchosTermActivos||[]).map(function(x,xi){return xi===ci?v:x;});
+                                                                    upd(ficha.id,'anchosTermActivos',arr);
+                                                                }}
+                                                                style={{flex:1,background:'#0d1520',border:'1px solid #92400e',
+                                                                    color:'#fcd34d',borderRadius:6,padding:'5px 10px',
+                                                                    fontSize:11,outline:'none'}}/>
+                                                            <button onClick={function(){
+                                                                upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).filter(function(_,xi){return xi!==ci;}));
+                                                            }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
+                                                                borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
+                                                                fontSize:12,flexShrink:0}}>×</button>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {(!ficha.anchosTermActivos||ficha.anchosTermActivos.length===0) && (
+                                                    <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>Sin columnas.</p>
+                                                )}
                                             </div>
                                             <div>
-                                                <span style={{fontSize:10,fontWeight:700,color:'#ec4899',display:'block',marginBottom:6}}>LARGOS (cm)</span>
-                                                <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
-                                                    {LARGOS_TERM.map(function(col){
-                                                        var on=(ficha.largosTermActivos||[]).includes(col);
-                                                        return (
-                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'largosTermActivos',col);}}
-                                                                style={{padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
-                                                                    border:'1px solid '+(on?'#ec4899':'#374151'),
-                                                                    background:on?'#500724':'#1f2937',
-                                                                    color:on?'#fbcfe8':'#6b7280'}}>
-                                                                {col}
-                                                            </button>
-                                                        );
-                                                    })}
+                                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                                                    <span style={{fontSize:10,fontWeight:700,color:'#ec4899'}}>LARGOS (cm)</span>
+                                                    <button onClick={function(){
+                                                        upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).concat('Nueva columna'));
+                                                    }} style={{padding:'3px 10px',borderRadius:6,background:'#500724',
+                                                        color:'#fbcfe8',border:'1px solid #ec4899',fontSize:10,
+                                                        fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
                                                 </div>
-                                                <input value={ficha.largoTermExtra||''}
-                                                    onChange={function(e){upd(ficha.id,'largoTermExtra',e.target.value);}}
-                                                    placeholder="Columna personalizada..."
-                                                    style={Object.assign({},S.inp,{fontSize:10})}/>
+                                                {(ficha.largosTermActivos||[]).map(function(col,ci){
+                                                    return (
+                                                        <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
+                                                            <input value={col}
+                                                                onChange={function(e){
+                                                                    var v=e.target.value;
+                                                                    var arr=(ficha.largosTermActivos||[]).map(function(x,xi){return xi===ci?v:x;});
+                                                                    upd(ficha.id,'largosTermActivos',arr);
+                                                                }}
+                                                                style={{flex:1,background:'#0d1520',border:'1px solid #500724',
+                                                                    color:'#fbcfe8',borderRadius:6,padding:'5px 10px',
+                                                                    fontSize:11,outline:'none'}}/>
+                                                            <button onClick={function(){
+                                                                upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).filter(function(_,xi){return xi!==ci;}));
+                                                            }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
+                                                                borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
+                                                                fontSize:12,flexShrink:0}}>×</button>
+                                                        </div>
+                                                    );
+                                                })}
+                                                {(!ficha.largosTermActivos||ficha.largosTermActivos.length===0) && (
+                                                    <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>Sin columnas.</p>
+                                                )}
                                             </div>
                                         </div>
                                     </div>
