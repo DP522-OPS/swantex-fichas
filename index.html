@@ -3271,14 +3271,47 @@ const EnhebradoTab = ({ structures }) => {
 
         /* ── Backup JSON ── */
         const exportBackup = () => {
-            const blob = new Blob([JSON.stringify(structures, null, 2)], {type:'application/json'});
+            // Include ALL data: F-CIR-002 precosteos + FT-CIR-004 medidas + enhebrado
+            let ft004Data = [];
+            let enhData   = {};
+            try { ft004Data = JSON.parse(localStorage.getItem('swantex_ft004_v2')||'[]'); } catch(e){}
+            try { enhData   = JSON.parse(localStorage.getItem('swantex_enh_v2')||'{}'); } catch(e){}
+            const backup = {
+                version:    2,
+                exportedAt: new Date().toISOString(),
+                precosteos: structures,
+                ft004:      ft004Data,
+                enhebrado:  enhData,
+            };
+            const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = `Swantex_Backup_${Date.now()}.json`; a.click();
+            a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
         };
         const importBackup = e => {
             const f = e.target.files[0]; if (!f) return;
             const r = new FileReader();
-            r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (Array.isArray(d)) persist(d); } catch { alert('Archivo inválido.'); } };
+            r.onload = ev => {
+                try {
+                    const d = JSON.parse(ev.target.result);
+                    if (Array.isArray(d)) {
+                        // Old format v1 — only precosteos
+                        persist(d);
+                        alert('Backup restaurado: ' + d.length + ' fichas de precosteos.');
+                    } else if (d && d.version === 2) {
+                        // New format v2 — all data
+                        if (Array.isArray(d.precosteos)) persist(d.precosteos);
+                        if (Array.isArray(d.ft004) && d.ft004.length > 0) {
+                            localStorage.setItem('swantex_ft004_v2', JSON.stringify(d.ft004));
+                        }
+                        if (d.enhebrado && Object.keys(d.enhebrado).length > 0) {
+                            localStorage.setItem('swantex_enh_v2', JSON.stringify(d.enhebrado));
+                        }
+                        alert('Backup restaurado:\n• ' + (d.precosteos||[]).length + ' fichas de precosteos\n• ' + (d.ft004||[]).length + ' fichas FT-CIR-004\n• Enhebrado incluido\n\nRecarga la página para ver los datos.');
+                    } else {
+                        alert('Formato de backup no reconocido.');
+                    }
+                } catch(err) { alert('Archivo inválido: ' + err.message); }
+            };
             r.readAsText(f); e.target.value='';
         };
 
