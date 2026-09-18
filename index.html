@@ -1188,6 +1188,34 @@ const EnhebradoTab = ({ structures }) => {
             setFichas(d);
             if (d.length > 0 && !activaId) setActivaId(d[0].id);
 
+            // ── Sync pending fichas from Firebase on startup ──────
+            setTimeout(async function() {
+                const FB = getFB();
+                if (!FB || !FB.db) return;
+                try {
+                    // Find fichas that have been saved to Firebase
+                    // by checking each local ficha
+                    const local = load();
+                    if (!local.length) return;
+                    const updated = [];
+                    for (var i=0; i<local.length; i++) {
+                        try {
+                            const snap = await FB.db.collection('fichas').doc(local[i].id).get();
+                            if (snap.exists) {
+                                const remote = restoreFromFirestore(snap.data());
+                                // Merge: keep remote signatures + remote measurements
+                                // but preserve local data if remote is missing it
+                                updated.push(Object.assign({}, local[i], remote));
+                            } else {
+                                updated.push(local[i]);
+                            }
+                        } catch(e2) { updated.push(local[i]); }
+                    }
+                    setFichas(updated);
+                    save(updated);
+                } catch(e) { console.warn('Firebase sync error:', e); }
+            }, 1200);
+
             // ── Check URL for aprobacion payload ──────────────────
             try {
                 const params = new URLSearchParams(window.location.search);
@@ -1291,10 +1319,18 @@ const EnhebradoTab = ({ structures }) => {
             setFichas(prev => {
                 const n = prev.map(f => f.id===id ? Object.assign({},f,{[field]:val}) : f);
                 save(n);
-                const sensitiveFields = ['anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
-                    'medidasCrudo','medidasReposo','medidasTerminado','aproboArmado',
-                    'aproboCorseteria','aproboCalidad','aproboDiseno','confeccion','estructura'];
-                if (sensitiveFields.indexOf(field) >= 0) {
+                // Only auto-sync approval fields to Firebase
+                // (medidas filled by jefatura stay local — elaborador syncs manually)
+                const approvalFields = ['aproboArmado','aproboCorseteria','aproboCalidad','aproboDiseno'];
+                const elaboradorFields = ['anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
+                    'medidasCrudo','medidasReposo','medidasTerminado','confeccion','estructura',
+                    'colorProduccion','condicionesDoblado','complementos'];
+                if (approvalFields.indexOf(field) >= 0) {
+                    // Auto-sync approval signatures immediately
+                    const updated = n.find(function(f){ return f.id===id; });
+                    if (updated) fbGuardarFicha(updated).catch(function(){});
+                } else if (!modoAprobacion && elaboradorFields.indexOf(field) >= 0) {
+                    // Only elaborador syncs content fields (not jefatura)
                     const updated = n.find(function(f){ return f.id===id; });
                     if (updated) fbGuardarFicha(updated).catch(function(){});
                 }
