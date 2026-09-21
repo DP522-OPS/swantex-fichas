@@ -3691,7 +3691,8 @@ const EnhebradoTab = ({ structures }) => {
                         y+=23;
 
                         /* ══ TALLAS ══ */
-                        const tallasOk=TALLAS_DEF.filter(t=>(ft.tallasCheck||{})[t]);
+                        const TALLAS_DEF_PDF=['S','SM','M','L','L/XL','XL','XXL','3XL','Única'];
+                        const tallasOk=TALLAS_DEF_PDF.filter(t=>(ft.tallasCheck||{})[t]);
                         if(ft.tallaExtra) tallasOk.push(ft.tallaExtra);
                         sf('#064e3b'); doc.rect(ML,y,CW,12,'F');
                         B(6.5,'#6ee7b7'); doc.text('TALLAS APROBADAS', ML+3, y+4.5);
