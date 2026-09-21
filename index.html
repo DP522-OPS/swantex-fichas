@@ -4029,7 +4029,7 @@ const EnhebradoTab = ({ structures }) => {
                                     doc.text(t,ML+lblW+ci*colW+colW/2,y+4.5,{align:'center'});
                                 });
                                 y+=6.5;
-                                Object.keys(ft.medidasCrudo).forEach(talla=>{
+                                tallasOk.filter(t=>ft.medidasCrudo[t]).forEach(talla=>{
                                     y=checkPage(y,20);
                                     const mc=ft.medidasCrudo[talla]||{};
                                     const diam=mc['__diam__']||'';
