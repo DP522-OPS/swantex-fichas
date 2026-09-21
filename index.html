@@ -3691,7 +3691,7 @@ const EnhebradoTab = ({ structures }) => {
                         y+=23;
 
                         /* ══ TALLAS ══ */
-                        const tallasOk=Object.keys(ft.tallasCheck||{}).filter(t=>ft.tallasCheck[t]);
+                        const tallasOk=TALLAS_DEF.filter(t=>(ft.tallasCheck||{})[t]);
                         if(ft.tallaExtra) tallasOk.push(ft.tallaExtra);
                         sf('#064e3b'); doc.rect(ML,y,CW,12,'F');
                         B(6.5,'#6ee7b7'); doc.text('TALLAS APROBADAS', ML+3, y+4.5);
