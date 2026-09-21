@@ -3607,6 +3607,7 @@ const EnhebradoTab = ({ structures }) => {
             setIsExporting(true);
             setTimeout(() => {
                 try {
+                    const TALLAS_DEF_PDF=['S','SM','M','L','L/XL','XL','XXL','3XL','Única'];
                     const { jsPDF } = window.jspdf;
                     /* Always start portrait; we add landscape page only for matrix */
                     const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
@@ -3691,7 +3692,6 @@ const EnhebradoTab = ({ structures }) => {
                         y+=23;
 
                         /* ══ TALLAS ══ */
-                        const TALLAS_DEF_PDF=['S','SM','M','L','L/XL','XL','XXL','3XL','Única'];
                         const tallasOk=TALLAS_DEF_PDF.filter(t=>(ft.tallasCheck||{})[t]);
                         if(ft.tallaExtra) tallasOk.push(ft.tallaExtra);
                         sf('#064e3b'); doc.rect(ML,y,CW,12,'F');
