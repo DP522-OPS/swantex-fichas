@@ -2310,7 +2310,7 @@ const EnhebradoTab = ({ structures }) => {
 
                                 {/* Botón enviar TODAS las fichas del mismo producto */}
                                 {(function(){
-                                    var fichasProducto = fichas.filter(function(f){ return f.producto && ficha.producto && f.producto===ficha.producto; });
+                                    var fichasProducto = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
                                     if(fichasProducto.length < 2) return null;
                                     var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
                                     return React.createElement('button', {
@@ -2320,25 +2320,49 @@ const EnhebradoTab = ({ structures }) => {
                                             setEnviando(true);
                                             setResultado(null);
                                             var errores = [];
-                                            for(var i=0; i<fichasProducto.length; i++){
-                                                var f = fichasProducto[i];
-                                                setFbSyncStatus(function(p){ return Object.assign({},p,{[f.id]:'syncing'}); });
-                                                var r = await fbGuardarFicha(f);
-                                                setFbSyncStatus(function(p){ return Object.assign({},p,{[f.id]:r.ok?'synced':'error'}); });
-                                                if(!r.ok){ errores.push(f.talla||f.id); continue; }
-                                                fbEscucharFicha(f.id, function(data){
-                                                    setFichas(function(prev){
-                                                        var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
-                                                        save(n); return n;
+                                            var rolesArrCopy = rolesArr.slice();
+                                            var fichasCopy = fichasProducto.slice();
+                                            for(var i=0; i<fichasCopy.length; i++){
+                                                var fItem = fichasCopy[i];
+                                                var fId = fItem.id;
+                                                setFbSyncStatus(function(p){ var o=Object.assign({},p); o[fId]='syncing'; return o; });
+                                                var rItem = await fbGuardarFicha(fItem);
+                                                setFbSyncStatus(function(p){ var o=Object.assign({},p); o[fId]=rItem.ok?'synced':'error'; return o; });
+                                                if(!rItem.ok){ errores.push(fItem.talla||fId); continue; }
+                                                (function(id){
+                                                    fbEscucharFicha(id, function(data){
+                                                        setFichas(function(prev){
+                                                            var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
+                                                            save(n); return n;
+                                                        });
                                                     });
-                                                });
-                                                await enviarTodasLasAprobaciones(f, function(){}, function(){}, rolesArr);
+                                                })(fId);
+                                                // Enviar emails directamente sin tocar setEnviando
+                                                var cfg = window.SWANTEX_CONFIG;
+                                                var ROLES_TODOS = ['BF-3817','MA-6524','PL-9043','CP-7261'];
+                                                for(var j=0; j<rolesArrCopy.length; j++){
+                                                    var rolKey = rolesArrCopy[j];
+                                                    var jef = cfg.JEFATURAS_CORREO[rolKey];
+                                                    if(!jef) continue;
+                                                    var link = fichaToLink(fItem, rolKey);
+                                                    try {
+                                                        await emailjs.send(cfg.EMAILJS_SERVICE, cfg.EMAILJS_TPL, {
+                                                            to_name: jef.nombre,
+                                                            to_email: jef.correos[0],
+                                                            producto: fItem.producto||'(sin nombre)',
+                                                            talla: fItem.talla||'',
+                                                            referencia: fItem.referencia||'',
+                                                            link_aprobacion: link,
+                                                            rol_aprobador: jef.rol
+                                                        }, cfg.EMAILJS_KEY);
+                                                    } catch(e){ console.warn('Email error',rolKey,e); }
+                                                }
                                             }
                                             setEnviando(false);
                                             if(errores.length>0){
                                                 setResultado({ok:false, msg:'Error al guardar talla(s): '+errores.join(', ')});
                                             } else {
-                                                setResultado({ok:true, msg:'✅ Correos enviados para todas las fichas de '+ficha.producto+' ('+fichasProducto.length+' fichas)'});
+                                                setResultado({ok:true, msg:'✅ Correos enviados para todas las fichas de '+ficha.producto+' ('+fichasCopy.length+' fichas, '+rolesArrCopy.length+' rol(es))'});
                                             }
                                         },
                                         style:{
