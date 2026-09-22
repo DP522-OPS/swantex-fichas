@@ -2318,7 +2318,6 @@ const EnhebradoTab = ({ structures }) => {
                                     return React.createElement('button', {
                                         disabled: enviandoTodas || enviando || rolesArr.length===0,
                                         onClick: async function(){
-                                            if(!confirm('Se enviarán correos de aprobación para '+fichasProducto.length+' fichas de "'+ficha.producto+'". ¿Continuar?')) return;
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
