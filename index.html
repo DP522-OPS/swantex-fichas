@@ -11,31 +11,6 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
-    <script>
-        (function(){
-            var cfg={apiKey:'AIzaSyCQqlJRxiyJPNkgiBNnF5kquWpBxKuMiQ8',authDomain:'swantex-fichas-5ca6b.firebaseapp.com',projectId:'swantex-fichas-5ca6b',storageBucket:'swantex-fichas-5ca6b.firebasestorage.app',messagingSenderId:'60295471678',appId:'1:60295471678:web:67a732cfbd97cdf20aa76f'};
-            function initFB(){
-                if(typeof firebase==='undefined'){setTimeout(initFB,100);return;}
-                try{
-                    var app=firebase.initializeApp(cfg);
-                    var db=firebase.firestore();
-                    window.SWANTEX_FIREBASE={app:app,db:db};
-                    window.FirestoreSDK={
-                        doc:function(db,col,id){return db.collection(col).doc(id);},
-                        setDoc:function(ref,data){return ref.set(data);},
-                        getDoc:function(ref){return ref.get().then(function(snap){return{exists:function(){return snap.exists;},data:function(){return snap.data();}};});},
-                        updateDoc:function(ref,data){return ref.update(data);},
-                        onSnapshot:function(ref,cb){return ref.onSnapshot(function(snap){cb({exists:function(){return snap.exists;},data:function(){return snap.data();}});});}
-                    };
-                    console.log('Firebase conectado ✓');
-                }catch(e){console.error('Firebase error:',e);}
-            }
-            initFB();
-        })();
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
     <script>
         // ── Swantex Config ──────────────────────────────────────
         window.SWANTEX_CONFIG = {
@@ -281,7 +256,6 @@
         { tipo:'Lycra', titulo:'Lycra 22-40-34', denNucleo:22, dtexCob:40, dtex:46.97, lote:'05-981', itemS:'6056', itemZ:'6057', proveedor:'Fujian' },
         { tipo:'Lycra', titulo:'Lycra 22-40-34', denNucleo:22, dtexCob:40, dtex:46.97, lote:'05-978', itemS:'2414', itemZ:'2415', proveedor:'Fujian' },
         { tipo:'Lycra', titulo:'Lycra 22-70-68', denNucleo:22, dtexCob:70, dtex:76.97, lote:'OS-969', itemS:'9545', itemZ:'9546', proveedor:'Fujian' },
-        { tipo:'Lycra', titulo:'Lycra 78-22-7',  denNucleo:78, dtexCob:22, dtex:49.21, lote:'05-972', itemS:'5899', itemZ:'6532', proveedor:'Fujian' },
         { tipo:'Lycra', titulo:'Lycra 40-22-7',  denNucleo:40, dtexCob:22, dtex:34.71, lote:'OS-934', itemS:'1114', itemZ:'1115', proveedor:'Fujian' },
         { tipo:'Lycra', titulo:'Lycra 140-70-68', denNucleo:140, dtexCob:70, dtex:114.44, lote:'05-980', itemS:'9564', itemZ:'9565', proveedor:'Fujian' },
         // Spandex desnudo — % DECLARADO MANUAL según zona de la prenda
@@ -1002,8 +976,11 @@ const EnhebradoTab = ({ structures }) => {
 
         // Compress ficha data into URL-safe base64
         const fichaToLink = (ficha, rolKey) => {
-            return (CFG.BASE_URL||'https://dp522-ops.github.io/swantex-fichas') +
-                '?fichaId=' + encodeURIComponent(ficha.id) + '&rol=' + encodeURIComponent(rolKey);
+            try {
+                const payload = JSON.stringify({ ficha, rolKey, ts: Date.now() });
+                const b64 = btoa(unescape(encodeURIComponent(payload)));
+                return CFG.BASE_URL + '?aprobacion=' + encodeURIComponent(b64);
+            } catch(e) { return CFG.BASE_URL||''; }
         };
 
         // Send approval email to one jefatura role
@@ -1030,8 +1007,8 @@ const EnhebradoTab = ({ structures }) => {
         };
 
         // Send all 4 approval emails at once
-        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado, rolesArr) => {
-            const roles = rolesArr && rolesArr.length > 0 ? rolesArr : ['BF-3817','MA-6524','PL-9043','CP-7261'];
+        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado) => {
+            const roles = ['BF-3817','MA-6524','PL-9043','CP-7261'];
             setEnviando(true);
             setResultado(null);
             const resultados = [];
@@ -1057,74 +1034,59 @@ const EnhebradoTab = ({ structures }) => {
            FIREBASE — Sincronización de firmas en la nube
         ══════════════════════════════════════════════════════ */
 
-        const getFB = function(){ return window.SWANTEX_FIREBASE || null; };
+        const FB = window.SWANTEX_FIREBASE || null;
 
         /* ── Guardar ficha completa en Firestore ── */
-        /* Sanitize for Firestore — fields cannot start AND end with __ */
-        /* Deep clean object for Firestore */
-        const cleanForFirestore = function(input) {
-            var str = JSON.stringify(input, function(key, val) {
-                if (typeof val === 'function') return undefined;
-                return val;
-            });
-            // Replace all "__xxx__" patterns with "xXxxXx" style
-            str = str.replace(/"__([^"]+)__"\s*:/g, '"_fb_$1_":');
-            return JSON.parse(str);
-        };
-        const restoreFromFirestore = function(input) {
-            var str = JSON.stringify(input);
-            str = str.replace(/"_fb_([^"]+)_"\s*:/g, '"__$1__":');
-            return JSON.parse(str);
-        };
-        const sanitizeForFirestore = cleanForFirestore;
-
         const fbGuardarFicha = async (ficha) => {
-            const FB = getFB();
-            if (!FB || !FB.db) return { ok:false, err:'Firebase no conectado' };
+            if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
             try {
-                const safe = cleanForFirestore(Object.assign({}, ficha, {
+                const { doc, setDoc } = window.FirestoreSDK;
+                const docRef = doc(FB.db, 'fichas', ficha.id);
+                await setDoc(docRef, {
+                    ...ficha,
                     _updatedAt: Date.now(),
                     _updatedBy: 'elaboro',
-                }));
-                await FB.db.collection('fichas').doc(ficha.id).set(safe);
-                return { ok:true };
-            } catch(e) {
-                console.error('Firebase save error:', e);
-                return { ok:false, err:String(e) };
-            }
-        };
-        /* ── Leer ficha de Firestore ── */
-        const fbLeerFicha = async (fichaId) => {
-            const FB = getFB();
-            if (!FB || !FB.db) return null;
-            try {
-                const snap = await FB.db.collection('fichas').doc(fichaId).get();
-                if (!snap.exists) return null;
-                return restoreFromFirestore(snap.data());
-            } catch(e) { console.error('Firebase read error:', e); return null; }
-        };
-        /* ── Guardar solo la firma de una jefatura ── */
-        const fbGuardarFirma = async (fichaId, campo, datos) => {
-            const FB = getFB();
-            if (!FB || !FB.db) return { ok:false };
-            try {
-                const upd = {};
-                upd[campo] = datos;
-                upd['_updatedAt'] = Date.now();
-                await FB.db.collection('fichas').doc(fichaId).update(upd);
+                });
                 return { ok:true };
             } catch(e) { return { ok:false, err:String(e) }; }
         };
+
+        /* ── Leer ficha de Firestore ── */
+        const fbLeerFicha = async (fichaId) => {
+            if (!FB || !FB.db) return null;
+            try {
+                const { doc, getDoc } = window.FirestoreSDK;
+                const snap = await getDoc(doc(FB.db, 'fichas', fichaId));
+                return snap.exists() ? snap.data() : null;
+            } catch(e) { return null; }
+        };
+
+        /* ── Guardar solo la firma de una jefatura ── */
+        const fbGuardarFirma = async (fichaId, campoAprobo, datosFirma) => {
+            if (!FB || !FB.db) return { ok:false, err:'Firebase no configurado' };
+            try {
+                const { doc, updateDoc } = window.FirestoreSDK;
+                const update = {};
+                update[campoAprobo] = datosFirma;
+                update['_updatedAt'] = Date.now();
+                update['_updatedBy'] = datosFirma.nombre;
+                await updateDoc(doc(FB.db, 'fichas', fichaId), update);
+                return { ok:true };
+            } catch(e) { return { ok:false, err:String(e) }; }
+        };
+
         /* ── Escuchar cambios en tiempo real ── */
         const fbEscucharFicha = (fichaId, onUpdate) => {
-            const FB = getFB();
-            if (!FB || !FB.db) return () => {};
+            if (!FB || !FB.db) return ()=>{};
             try {
-                return FB.db.collection('fichas').doc(fichaId).onSnapshot(snap => {
-                    if (snap.exists) onUpdate(restoreFromFirestore(snap.data()));
+                const { doc, onSnapshot } = window.FirestoreSDK;
+                const unsub = onSnapshot(doc(FB.db,'fichas',fichaId), (snap)=>{
+                    if (snap.exists()) onUpdate(snap.data());
                 });
-            } catch(e) { return () => {}; }
+                return unsub;
+            } catch(e) { return ()=>{}; }
         };
+
         /* ── Enviar correo de notificación de firma ── */
         const enviarNotificacionFirma = (ficha, nombreFirmante, rol, totalFirmas, firmasReq) => {
             if (!CFG.EMAILJS_KEY || !CFG.EMAILJS_SERVICE) return;
@@ -1157,13 +1119,9 @@ const EnhebradoTab = ({ structures }) => {
         const [activaId,    setActivaId]    = useState(null);
         const [codigoInput, setCodigoInput] = useState({});   // {fichaId: string}
         const [codigoError, setCodigoError] = useState({});
-        const [modoAprobacion,  setModoAprobacion]  = useState(false);
-        const [rolesSelec,      setRolesSelec]      = useState({'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true});
-        const [fbSyncStatus,    setFbSyncStatus]    = useState({});
+        const [modoAprobacion, setModoAprobacion] = useState(false);
         const [enviando,       setEnviando]       = useState(false);
         const [resultado,      setResultado]      = useState(null);
-        const [enviandoTodas,  setEnviandoTodas]  = useState(false);
-        const [resultadoTodas, setResultadoTodas] = useState(null);
 
         /* ── Persistencia ── */
         const load = () => {
@@ -1177,55 +1135,10 @@ const EnhebradoTab = ({ structures }) => {
             setFichas(d);
             if (d.length > 0 && !activaId) setActivaId(d[0].id);
 
-            // ── Sync pending fichas from Firebase on startup ──────
-            setTimeout(async function() {
-                const FB = getFB();
-                if (!FB || !FB.db) return;
-                try {
-                    // Find fichas that have been saved to Firebase
-                    // by checking each local ficha
-                    const local = load();
-                    if (!local.length) return;
-                    const updated = [];
-                    for (var i=0; i<local.length; i++) {
-                        try {
-                            const snap = await FB.db.collection('fichas').doc(local[i].id).get();
-                            if (snap.exists) {
-                                const remote = restoreFromFirestore(snap.data());
-                                // Merge: keep remote signatures + remote measurements
-                                // but preserve local data if remote is missing it
-                                updated.push(Object.assign({}, local[i], remote));
-                            } else {
-                                updated.push(local[i]);
-                            }
-                        } catch(e2) { updated.push(local[i]); }
-                    }
-                    setFichas(updated);
-                    save(updated);
-                } catch(e) { console.warn('Firebase sync error:', e); }
-            }, 1200);
-
             // ── Check URL for aprobacion payload ──────────────────
             try {
                 const params = new URLSearchParams(window.location.search);
-                const fichaIdParam = params.get('fichaId');
-                const rolParam     = params.get('rol');
-                if (fichaIdParam) {
-                    window.__swantex_aprobacion_rol = rolParam || '';
-                    setModoAprobacion(true);
-                    setTimeout(async function() {
-                        const data = await fbLeerFicha(fichaIdParam);
-                        if (data) {
-                            // En modo aprobación solo mostramos la ficha que corresponde
-                            // NO guardamos en localStorage para no contaminar el dispositivo del aprobador
-                            setFichas([data]);
-                            setActivaId(fichaIdParam);
-                        } else {
-                            alert('No se encontró la ficha. Pide al elaborador que la guarde en la nube primero.');
-                        }
-                    }, 800);
-                }
-                const aprobB64 = null; // disabled
+                const aprobB64 = params.get('aprobacion');
                 if (aprobB64) {
                     const payload = JSON.parse(decodeURIComponent(escape(atob(decodeURIComponent(aprobB64)))));
                     if (payload && payload.ficha) {
@@ -1303,21 +1216,6 @@ const EnhebradoTab = ({ structures }) => {
             setFichas(prev => {
                 const n = prev.map(f => f.id===id ? Object.assign({},f,{[field]:val}) : f);
                 save(n);
-                // Only auto-sync approval fields to Firebase
-                // (medidas filled by jefatura stay local — elaborador syncs manually)
-                const approvalFields = ['aproboArmado','aproboCorseteria','aproboCalidad','aproboDiseno'];
-                const elaboradorFields = ['anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
-                    'medidasCrudo','medidasReposo','medidasTerminado','confeccion','estructura',
-                    'colorProduccion','condicionesDoblado','complementos'];
-                if (approvalFields.indexOf(field) >= 0) {
-                    // Auto-sync approval signatures immediately
-                    const updated = n.find(function(f){ return f.id===id; });
-                    if (updated) fbGuardarFicha(updated).catch(function(){});
-                } else if (!modoAprobacion && elaboradorFields.indexOf(field) >= 0) {
-                    // Only elaborador syncs content fields (not jefatura)
-                    const updated = n.find(function(f){ return f.id===id; });
-                    if (updated) fbGuardarFicha(updated).catch(function(){});
-                }
                 return n;
             });
         };
@@ -1503,8 +1401,12 @@ const EnhebradoTab = ({ structures }) => {
             ? TALLAS_DEF.filter(t=>ficha.tallasCheck[t])
               .concat(ficha.tallaExtra ? [ficha.tallaExtra] : [])
             : [];
-        const anchoCols = ficha ? (ficha.anchosActivos||[]) : [];
-        const largoCols = ficha ? (ficha.largosActivos||[]) : [];
+        const anchoCols = ficha
+            ? (ficha.anchosActivos||[]).concat(ficha.anchoExtra?[ficha.anchoExtra]:[])
+            : [];
+        const largoCols = ficha
+            ? (ficha.largosActivos||[]).concat(ficha.largoExtra?[ficha.largoExtra]:[])
+            : [];
 
         const statusColor = {BORRADOR:'#6b7280',REVISIÓN:'#3b82f6',APROBADO:'#10b981'};
 
@@ -1556,7 +1458,7 @@ const EnhebradoTab = ({ structures }) => {
                         <p style={{fontSize:14,fontWeight:700}}>Crea una nueva FT-CIR-004</p>
                     </div>
                 ) : (
-                    <div key={ficha.id} style={{flex:1,minWidth:0}}>
+                    <div style={{flex:1,minWidth:0}}>
 
                         {/* ─── HEADER FICHA ─── */}
                         <div style={{background:'#0d1520',border:'1px solid #1f2e42',
@@ -1967,81 +1869,50 @@ const EnhebradoTab = ({ structures }) => {
                         {/* ─── CONFIGURAR COLUMNAS + 3. MEDIDAS EN CRUDO ─── */}
                         {/* Config columnas */}
                         <div style={Object.assign({},S.card,{marginBottom:8})}>
-                            <span style={S.lbl}>⚙ Columnas — Punto 3: Medidas en Crudo</span>
+                            <span style={S.lbl}>⚙ Configurar columnas — Punto 3: Medidas en Crudo</span>
                             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16}}>
                                 <div>
-                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                                        <span style={{fontSize:10,fontWeight:700,color:'#3b82f6'}}>ANCHOS (cm)</span>
-                                        <button onClick={function(){
-                                            upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).concat('Nueva columna'));
-                                        }} style={{padding:'3px 10px',borderRadius:6,background:'#1e3a5f',
-                                            color:'#93c5fd',border:'1px solid #3b82f6',fontSize:10,
-                                            fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
+                                    <span style={{fontSize:10,fontWeight:700,color:'#3b82f6',display:'block',marginBottom:6}}>ANCHOS (cm)</span>
+                                    <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                                        {ANCHOS_DEF.map(function(col){
+                                            var on=(ficha.anchosActivos||[]).includes(col);
+                                            return (
+                                                <button key={col} onClick={function(){toggleCol(ficha.id,'anchosActivos',col);}}
+                                                    style={{padding:'3px 10px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
+                                                        border:'1px solid '+(on?'#3b82f6':'#374151'),
+                                                        background:on?'#1e3a5f':'#1f2937',color:on?'#93c5fd':'#6b7280'}}>
+                                                    {col}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                    {(ficha.anchosActivos||[]).map(function(col,ci){
-                                        return (
-                                            <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
-                                                <input value={col}
-                                                    onChange={function(e){
-                                                        var v=e.target.value;
-                                                        var arr=(ficha.anchosActivos||[]).map(function(x,xi){return xi===ci?v:x;});
-                                                        upd(ficha.id,'anchosActivos',arr);
-                                                    }}
-                                                    style={{flex:1,background:'#0d1520',border:'1px solid #1e3a5f',
-                                                        color:'#93c5fd',borderRadius:6,padding:'5px 10px',
-                                                        fontSize:11,outline:'none'}}/>
-                                                <button onClick={function(){
-                                                    upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).filter(function(_,xi){return xi!==ci;}));
-                                                }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
-                                                    borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
-                                                    fontSize:12,flexShrink:0}}>×</button>
-                                            </div>
-                                        );
-                                    })}
-                                    {(!ficha.anchosActivos||ficha.anchosActivos.length===0) && (
-                                        <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>
-                                            Sin columnas. Usa "+ Añadir".
-                                        </p>
-                                    )}
+                                    <input value={ficha.anchoExtra||''} onChange={function(e){upd(ficha.id,'anchoExtra',e.target.value);}}
+                                        placeholder="Columna personalizada de ancho..."
+                                        style={Object.assign({},S.inp,{fontSize:10})}/>
                                 </div>
                                 <div>
-                                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                                        <span style={{fontSize:10,fontWeight:700,color:'#10b981'}}>LARGOS (cm)</span>
-                                        <button onClick={function(){
-                                            upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).concat('Nueva columna'));
-                                        }} style={{padding:'3px 10px',borderRadius:6,background:'#064e3b',
-                                            color:'#6ee7b7',border:'1px solid #10b981',fontSize:10,
-                                            fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
+                                    <span style={{fontSize:10,fontWeight:700,color:'#10b981',display:'block',marginBottom:6}}>LARGOS (cm)</span>
+                                    <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                                        {LARGOS_DEF.map(function(col){
+                                            var on=(ficha.largosActivos||[]).includes(col);
+                                            return (
+                                                <button key={col} onClick={function(){toggleCol(ficha.id,'largosActivos',col);}}
+                                                    style={{padding:'3px 10px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
+                                                        border:'1px solid '+(on?'#10b981':'#374151'),
+                                                        background:on?'#064e3b':'#1f2937',color:on?'#6ee7b7':'#6b7280'}}>
+                                                    {col}
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                    {(ficha.largosActivos||[]).map(function(col,ci){
-                                        return (
-                                            <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
-                                                <input value={col}
-                                                    onChange={function(e){
-                                                        var v=e.target.value;
-                                                        var arr=(ficha.largosActivos||[]).map(function(x,xi){return xi===ci?v:x;});
-                                                        upd(ficha.id,'largosActivos',arr);
-                                                    }}
-                                                    style={{flex:1,background:'#0d1520',border:'1px solid #064e3b',
-                                                        color:'#6ee7b7',borderRadius:6,padding:'5px 10px',
-                                                        fontSize:11,outline:'none'}}/>
-                                                <button onClick={function(){
-                                                    upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).filter(function(_,xi){return xi!==ci;}));
-                                                }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
-                                                    borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
-                                                    fontSize:12,flexShrink:0}}>×</button>
-                                            </div>
-                                        );
-                                    })}
-                                    {(!ficha.largosActivos||ficha.largosActivos.length===0) && (
-                                        <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>
-                                            Sin columnas. Usa "+ Añadir".
-                                        </p>
-                                    )}
+                                    <input value={ficha.largoExtra||''} onChange={function(e){upd(ficha.id,'largoExtra',e.target.value);}}
+                                        placeholder="Columna personalizada de largo..."
+                                        style={Object.assign({},S.inp,{fontSize:10})}/>
                                 </div>
                             </div>
                         </div>
-                                                {/* TABLA PRINCIPAL PUNTO 3 */}
+
+                        {/* TABLA PRINCIPAL PUNTO 3 */}
                         <div style={{background:'#0a1a0f',border:'2px solid #166534',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             {/* Header verde como en imagen */}
                             <div style={{background:'#14532d',padding:'8px 16px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
@@ -2063,7 +1934,7 @@ const EnhebradoTab = ({ structures }) => {
                                 </div>
                             ) : (
                                 <div style={{overflowX:'auto'}}>
-                                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,tableLayout:'fixed'}}>
+                                    <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
                                         {/* FILA 1: encabezados agrupados */}
                                         <thead>
                                             <tr>
@@ -2102,8 +1973,8 @@ const EnhebradoTab = ({ structures }) => {
                                                     return (
                                                         <th key={col} style={{
                                                             background:'#1e3a5f',color:'#93c5fd',fontSize:9,fontWeight:800,
-                                                            padding:'5px 8px',border:'1px solid #374151',
-                                                            textAlign:'center',minWidth:120}}>
+                                                            padding:'4px 4px',border:'1px solid #374151',
+                                                            textAlign:'center',minWidth:56,whiteSpace:'nowrap'}}>
                                                             {col}
                                                         </th>
                                                     );
@@ -2191,12 +2062,11 @@ const EnhebradoTab = ({ structures }) => {
                                                                                 updCrudo(ficha.id,talla,lim,col,e.target.value);
                                                                             }}
                                                                             style={{
-                                                                                width:'100%',background:'transparent',border:'none',
+                                                                                width:'100%',minWidth:80,background:'transparent',border:'none',
                                                                                 color: isEdge ? '#ef4444' : '#e2e8f0',
-                                                                                fontSize:11,textAlign:'left',outline:'none',
-                                                                                padding:'5px 6px',
-                                                                                fontWeight: isEdge ? 700 : 400,
-                                                                                boxSizing:'border-box'}}/>
+                                                                                fontSize:11,textAlign:'center',outline:'none',
+                                                                                padding:'4px 2px',
+                                                                                fontWeight: isEdge ? 700 : 400}}/>
                                                                     </td>
                                                                 );
                                                             })}
@@ -2215,201 +2085,68 @@ const EnhebradoTab = ({ structures }) => {
                         {/* ── PANEL ENVÍO PARA APROBACIÓN ── */}
                         <div style={{
                             background:'linear-gradient(135deg,#0a1628,#0d1f35)',
-                            border:'1.5px solid #2563eb',borderRadius:14,
-                            padding:'16px 20px',marginBottom:12}}>
-
-                            {/* Header */}
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14,flexWrap:'wrap',gap:10}}>
+                            border:'1.5px solid #2563eb', borderRadius:14,
+                            padding:'16px 20px', marginBottom:12
+                        }}>
+                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:10}}>
                                 <div>
                                     <p style={{margin:0,fontSize:11,fontWeight:800,color:'#93c5fd',textTransform:'uppercase',letterSpacing:'0.1em'}}>
                                         📧 Enviar para Aprobación de Jefaturas
                                     </p>
                                     <p style={{margin:'3px 0 0',fontSize:10,color:'#4b5563'}}>
-                                        Selecciona quién debe aprobar esta referencia
+                                        Se enviará un correo a cada jefatura con un link personalizado para aprobar
                                     </p>
                                 </div>
-                                {fbSyncStatus[ficha.id] && (
-                                    <span style={{fontSize:9,padding:'3px 10px',borderRadius:99,fontWeight:700,
-                                        background:fbSyncStatus[ficha.id]==='synced'?'#065f46':fbSyncStatus[ficha.id]==='syncing'?'#1e3a5f':'#7f1d1d',
-                                        color:fbSyncStatus[ficha.id]==='synced'?'#6ee7b7':fbSyncStatus[ficha.id]==='syncing'?'#93c5fd':'#fca5a5'}}>
-                                        {fbSyncStatus[ficha.id]==='synced'?'☁ Guardado':fbSyncStatus[ficha.id]==='syncing'?'⏳ Guardando...':'⚠ Error nube'}
-                                    </span>
-                                )}
-                            </div>
-
-                            {/* Selector de aprobadores */}
-                            <p style={{margin:'0 0 8px',fontSize:9,fontWeight:800,color:'#6b7280',textTransform:'uppercase'}}>
-                                ¿Quién debe aprobar esta referencia?
-                            </p>
-                            <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
-                                {[
-                                    {key:'BF-3817',nombre:'Bella Forero',    rol:'Armado y Calidad',col:'#3b82f6'},
-                                    {key:'MA-6524',nombre:'Marisol Álvarez', rol:'Corsetería',       col:'#10b981'},
-                                    {key:'PL-9043',nombre:'Paola López',     rol:'Calidad',          col:'#f59e0b'},
-                                    {key:'CP-7261',nombre:'Camila Prias',    rol:'Diseño',           col:'#ec4899'},
-                                ].map(function(item){
-                                    var sel = rolesSelec[item.key];
-                                    var aprKey = item.key==='BF-3817'?'aproboArmado':item.key==='MA-6524'?'aproboCorseteria':item.key==='PL-9043'?'aproboCalidad':'aproboDiseno';
-                                    var apr = ficha[aprKey]||{};
-                                    return (
-                                        <button key={item.key}
-                                            onClick={function(){
-                                                setRolesSelec(function(prev){
-                                                    var n=Object.assign({},prev);
-                                                    n[item.key]=!n[item.key];
-                                                    return n;
-                                                });
-                                            }}
-                                            style={{padding:'7px 14px',borderRadius:9,cursor:'pointer',
-                                                border:'2px solid '+(sel?item.col:'#374151'),
-                                                background:sel?item.col+'22':'#1f2937',
-                                                color:sel?item.col:'#4b5563',
-                                                fontWeight:800,fontSize:10,
-                                                display:'flex',alignItems:'center',gap:6}}>
-                                            <span style={{width:14,height:14,borderRadius:3,
-                                                background:sel?item.col:'transparent',
-                                                border:'2px solid '+(sel?item.col:'#374151'),
-                                                display:'inline-flex',alignItems:'center',
-                                                justifyContent:'center',fontSize:10,color:'#fff'}}>
-                                                {sel?'✓':''}
-                                            </span>
-                                            {item.nombre}
-                                            {apr.bloqueado && <span style={{fontSize:8,background:'#065f46',color:'#6ee7b7',padding:'1px 5px',borderRadius:99}}>✓</span>}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-                            <p style={{margin:'0 0 14px',fontSize:9,color:'#374151'}}>
-                                {Object.values(rolesSelec).filter(Boolean).length} aprobador(es) seleccionado(s)
-                            </p>
-
-                            {/* Botones acción */}
-                            <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
                                 <button
-                                    disabled={enviando||!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0}
-                                    onClick={async function(){
-                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
-                                        var r = await fbGuardarFicha(ficha);
-                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
-                                        if (!r.ok){ alert('Error guardando en nube: '+r.err); return; }
-                                        // Escuchar cambios en tiempo real
-                                        fbEscucharFicha(ficha.id, function(data){
-                                            setFichas(function(prev){
-                                                var n=prev.map(function(f){return f.id===data.id?data:f;});
-                                                save(n); return n;
-                                            });
-                                        });
-                                        // Enviar solo a los seleccionados
-                                        var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
-                                        await enviarTodasLasAprobaciones(ficha, setEnviando, setResultado, rolesArr);
-                                    }}
-                                    style={{padding:'10px 20px',borderRadius:10,border:'none',
-                                        background:enviando?'#374151':'#2563eb',color:'#fff',
-                                        fontWeight:800,fontSize:12,cursor:'pointer',
-                                        opacity:!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
-                                    {enviando?'⏳ Enviando...':'📤 Enviar esta ficha'}
-                                </button>
-
-                                {/* Botón enviar TODAS las fichas del mismo producto */}
-                                {fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length >= 2 && (
-                                    <button
-                                        disabled={enviandoTodas||enviando||Object.values(rolesSelec).filter(Boolean).length===0}
-                                        onClick={async function(){
-                                            var fichasCopy = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
-                                            var rolesArrCopy = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
-                                            setEnviandoTodas(true);
-                                            setResultadoTodas(null);
-                                            var errores = [];
-                                            try {
-                                                for(var i=0; i<fichasCopy.length; i++){
-                                                    var fItem = fichasCopy[i];
-                                                    var fId = fItem.id;
-                                                    var syncId = fId;
-                                                    setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:'syncing'}); });
-                                                    var rItem = await fbGuardarFicha(fItem);
-                                                    var syncOk = rItem.ok;
-                                                    setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:syncOk?'synced':'error'}); });
-                                                    if(!rItem.ok){ errores.push(fItem.talla||fId); continue; }
-                                                    fbEscucharFicha(fId, function(data){
-                                                        setFichas(function(prev){
-                                                            var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
-                                                            save(n); return n;
-                                                        });
-                                                    });
-                                                    for(var j=0; j<rolesArrCopy.length; j++){
-                                                        try { await enviarCorreoAprobacion(fItem, rolesArrCopy[j]); }
-                                                        catch(e){ console.warn('Email error',rolesArrCopy[j],e); }
-                                                    }
-                                                }
-                                                if(errores.length>0){
-                                                    setResultadoTodas({ok:false, msg:'Error guardando talla(s): '+errores.join(', ')});
-                                                } else {
-                                                    setResultadoTodas({ok:true, msg:'✅ Correos enviados para '+fichasCopy.length+' fichas · '+rolesArrCopy.length+' rol(es)'});
-                                                }
-                                            } catch(err){
-                                                setResultadoTodas({ok:false, msg:'Error: '+String(err)});
-                                            }
-                                            setEnviandoTodas(false);
-                                        }}
-                                        style={{padding:'10px 20px',borderRadius:10,border:'2px solid #7c3aed',
-                                            background:enviandoTodas?'#374151':'#4c1d95',color:'#e9d5ff',
-                                            fontWeight:800,fontSize:12,cursor:'pointer',
-                                            opacity:Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
-                                        {enviandoTodas?'⏳ Enviando todas...':'📦 Enviar todas las fichas ('+fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length+')'}
-                                    </button>
-                                )}
-
-                                <button
-                                    onClick={async function(){
-                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
-                                        var r = await fbGuardarFicha(ficha);
-                                        setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
-                                        if(r.ok){
-                                            // Start listening for signatures
-                                            fbEscucharFicha(ficha.id, function(data){
-                                                setFichas(function(prev){
-                                                    var n=prev.map(function(f){return f.id===data.id?data:f;});
-                                                    save(n); return n;
-                                                });
-                                            });
-                                        }
-                                    }}
-                                    style={{padding:'10px 16px',borderRadius:10,
-                                        border:'1px solid #374151',background:'#1f2937',
-                                        color:'#9ca3af',fontWeight:700,fontSize:11,cursor:'pointer'}}>
-                                    ☁ Guardar en nube
+                                    disabled={enviando || !ficha.producto}
+                                    onClick={()=>enviarTodasLasAprobaciones(ficha, setEnviando, setResultado)}
+                                    style={{
+                                        padding:'10px 20px', borderRadius:10, border:'none',
+                                        background: enviando?'#374151':'#2563eb',
+                                        color:'#fff', fontWeight:800, fontSize:12,
+                                        cursor: enviando||!ficha.producto?'not-allowed':'pointer',
+                                        textTransform:'uppercase', letterSpacing:'0.06em',
+                                        display:'flex', alignItems:'center', gap:8,
+                                        opacity: !ficha.producto?0.5:1
+                                    }}>
+                                    {enviando ? '⏳ Enviando...' : '📤 Enviar Correos de Aprobación'}
                                 </button>
                             </div>
 
-                            {/* Links individuales */}
+                            {/* Links individuales por jefatura */}
                             <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8,marginBottom:resultado?12:0}}>
                                 {[
                                     {key:'BF-3817',label:'Armado y Calidad',col:'#3b82f6'},
-                                    {key:'MA-6524',label:'Corsetería',      col:'#10b981'},
-                                    {key:'PL-9043',label:'Calidad',         col:'#f59e0b'},
-                                    {key:'CP-7261',label:'Diseño',          col:'#ec4899'},
-                                ].filter(function(item){return rolesSelec[item.key];}).map(function(item){
-                                    var link = ficha.producto ? fichaToLink(ficha, item.key) : '';
-                                    var aprKey = item.key==='BF-3817'?'aproboArmado':item.key==='MA-6524'?'aproboCorseteria':item.key==='PL-9043'?'aproboCalidad':'aproboDiseno';
-                                    var apr = ficha[aprKey]||{};
+                                    {key:'MA-6524',label:'Corsetería',       col:'#10b981'},
+                                    {key:'PL-9043',label:'Calidad',          col:'#f59e0b'},
+                                    {key:'CP-7261',label:'Diseño',           col:'#ec4899'},
+                                ].map(function(item){
+                                    const apr = ficha[
+                                        item.key==='BF-3817'?'aproboArmado':
+                                        item.key==='MA-6524'?'aproboCorseteria':
+                                        item.key==='PL-9043'?'aproboCalidad':'aproboDiseno'
+                                    ]||{};
+                                    const link = ficha.producto ? fichaToLink(ficha, item.key) : '';
                                     return (
-                                        <div key={item.key} style={{background:'#0d1520',border:'1px solid '+item.col+'44',borderRadius:8,padding:'8px 12px'}}>
-                                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:4}}>
-                                                <span style={{fontSize:10,fontWeight:800,color:item.col}}>{item.label}</span>
-                                                {apr.bloqueado
-                                                    ? <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>
-                                                    : <span style={{fontSize:9,color:'#374151'}}>Pendiente</span>
-                                                }
+                                        <div key={item.key} style={{
+                                            background:'#0d1520', border:'1px solid '+item.col+'44',
+                                            borderRadius:8, padding:'8px 12px',
+                                            display:'flex', flexDirection:'column', gap:4
+                                        }}>
+                                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                                                <span style={{fontSize:10,fontWeight:800,color:item.col,textTransform:'uppercase'}}>{item.label}</span>
+                                                {apr.bloqueado && <span style={{fontSize:9,background:'#065f46',color:'#6ee7b7',padding:'1px 6px',borderRadius:99,fontWeight:700}}>✓ Aprobado</span>}
                                             </div>
                                             {link && (
-                                                <div style={{display:'flex',gap:5}}>
+                                                <div style={{display:'flex',gap:6,alignItems:'center'}}>
                                                     <input readOnly value={link}
-                                                        style={{flex:1,fontSize:8,padding:'3px 6px',background:'#0a0e1a',
-                                                            border:'1px solid #1f2937',borderRadius:4,color:'#6b7280',
-                                                            fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis'}}/>
-                                                    <button onClick={function(){navigator.clipboard.writeText(link);}}
+                                                        style={{flex:1,fontSize:8,padding:'3px 6px',
+                                                            background:'#0a0e1a',border:'1px solid #1f2937',
+                                                            borderRadius:4,color:'#6b7280',fontFamily:'monospace',
+                                                            overflow:'hidden',textOverflow:'ellipsis'}}/>
+                                                    <button onClick={()=>navigator.clipboard.writeText(link)}
                                                         style={{padding:'3px 8px',borderRadius:4,background:item.col,
-                                                            color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer'}}>
+                                                            color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer',whiteSpace:'nowrap'}}>
                                                         Copiar
                                                     </button>
                                                 </div>
@@ -2419,36 +2156,42 @@ const EnhebradoTab = ({ structures }) => {
                                 })}
                             </div>
 
-                            {/* Resultado envío ficha individual */}
-                            {resultado && Array.isArray(resultado) && (
+                            {/* Resultado del envío */}
+                            {resultado && (
                                 <div style={{borderTop:'1px solid #1f2937',paddingTop:10}}>
+                                    <p style={{margin:'0 0 8px',fontSize:10,fontWeight:800,color:'#9ca3af',textTransform:'uppercase'}}>
+                                        Resultado del envío:
+                                    </p>
                                     {resultado.map(function(r,ri){
                                         return (
-                                            <div key={ri} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 10px',borderRadius:6,marginBottom:4,
+                                            <div key={ri} style={{
+                                                display:'flex',alignItems:'center',gap:8,
+                                                padding:'5px 10px',borderRadius:6,marginBottom:4,
                                                 background:r.ok?'rgba(16,185,129,0.08)':'rgba(220,38,38,0.08)',
-                                                border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')}}>
-                                                <span>{r.ok?'✅':'❌'}</span>
-                                                <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
-                                                    {r.nombre} ({r.rol})
-                                                </span>
+                                                border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')
+                                            }}>
+                                                <span style={{fontSize:14}}>{r.ok?'✅':'❌'}</span>
+                                                <div style={{flex:1}}>
+                                                    <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
+                                                        {r.nombre} ({r.rol})
+                                                    </span>
+                                                    {!r.ok && r.error && (
+                                                        <span style={{fontSize:9,color:'#6b7280',marginLeft:8}}>{r.error}</span>
+                                                    )}
+                                                    {r.ok && r.link && false /* emailjs configurado */ && (
+                                                        <span style={{fontSize:8,color:'#6b7280',marginLeft:8}}>
+                                                            (EmailJS no configurado — usa el link Copiar)
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         );
                                     })}
                                 </div>
                             )}
-
-                            {/* Resultado envío todas las fichas */}
-                            {resultadoTodas && (
-                                <div style={{marginTop:8,padding:'8px 12px',borderRadius:8,
-                                    background:resultadoTodas.ok?'rgba(16,185,129,0.1)':'rgba(220,38,38,0.1)',
-                                    border:'1px solid '+(resultadoTodas.ok?'#065f46':'#7f1d1d'),
-                                    fontSize:11,color:resultadoTodas.ok?'#10b981':'#ef4444',fontWeight:700}}>
-                                    {resultadoTodas.msg}
-                                </div>
-                            )}
                         </div>
 
-                                                <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
+                        <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             <div style={S.secHdr}><span>FIRMAS Y APROBACIÓN</span></div>
                             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:1,background:'#1f2937'}}>
 
@@ -2687,80 +2430,56 @@ const EnhebradoTab = ({ structures }) => {
                             5. MEDIDAS EN TERMINADO — METRO DINÁMICO CETME
                         ══════════════════════════════════════════ */}
                         {(function(){
-                            var anchosT = (ficha.anchosTermActivos||[]);
-                            var largosT = (ficha.largosTermActivos||[]);
+                            var anchosT = (ficha.anchosTermActivos||[]).concat(ficha.anchoTermExtra?[ficha.anchoTermExtra]:[]);
+                            var largosT = (ficha.largosTermActivos||[]).concat(ficha.largoTermExtra?[ficha.largoTermExtra]:[]);
                             var allColsT = [].concat(anchosT,largosT);
                             return (
                                 <div style={{marginBottom:12}}>
                                     {/* Config columnas terminado */}
                                     <div style={Object.assign({},S.card,{marginBottom:8,borderColor:'#1e3a5f'})}>
-                                        <span style={S.lbl}>⚙ Columnas — Punto 5: Medidas en Terminado</span>
+                                        <span style={S.lbl}>⚙ Configurar columnas — Punto 5: Medidas en Terminado</span>
                                         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14}}>
                                             <div>
-                                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                                                    <span style={{fontSize:10,fontWeight:700,color:'#f59e0b'}}>ANCHOS (cm)</span>
-                                                    <button onClick={function(){
-                                                        upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).concat('Nueva columna'));
-                                                    }} style={{padding:'3px 10px',borderRadius:6,background:'#451a03',
-                                                        color:'#fcd34d',border:'1px solid #f59e0b',fontSize:10,
-                                                        fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
+                                                <span style={{fontSize:10,fontWeight:700,color:'#f59e0b',display:'block',marginBottom:6}}>ANCHOS (cm)</span>
+                                                <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                                                    {ANCHOS_TERM.map(function(col){
+                                                        var on=(ficha.anchosTermActivos||[]).includes(col);
+                                                        return (
+                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'anchosTermActivos',col);}}
+                                                                style={{padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
+                                                                    border:'1px solid '+(on?'#f59e0b':'#374151'),
+                                                                    background:on?'#451a03':'#1f2937',
+                                                                    color:on?'#fcd34d':'#6b7280'}}>
+                                                                {col}
+                                                            </button>
+                                                        );
+                                                    })}
                                                 </div>
-                                                {(ficha.anchosTermActivos||[]).map(function(col,ci){
-                                                    return (
-                                                        <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
-                                                            <input value={col}
-                                                                onChange={function(e){
-                                                                    var v=e.target.value;
-                                                                    var arr=(ficha.anchosTermActivos||[]).map(function(x,xi){return xi===ci?v:x;});
-                                                                    upd(ficha.id,'anchosTermActivos',arr);
-                                                                }}
-                                                                style={{flex:1,background:'#0d1520',border:'1px solid #92400e',
-                                                                    color:'#fcd34d',borderRadius:6,padding:'5px 10px',
-                                                                    fontSize:11,outline:'none'}}/>
-                                                            <button onClick={function(){
-                                                                upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).filter(function(_,xi){return xi!==ci;}));
-                                                            }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
-                                                                borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
-                                                                fontSize:12,flexShrink:0}}>×</button>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {(!ficha.anchosTermActivos||ficha.anchosTermActivos.length===0) && (
-                                                    <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>Sin columnas.</p>
-                                                )}
+                                                <input value={ficha.anchoTermExtra||''}
+                                                    onChange={function(e){upd(ficha.id,'anchoTermExtra',e.target.value);}}
+                                                    placeholder="Columna personalizada..."
+                                                    style={Object.assign({},S.inp,{fontSize:10})}/>
                                             </div>
                                             <div>
-                                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
-                                                    <span style={{fontSize:10,fontWeight:700,color:'#ec4899'}}>LARGOS (cm)</span>
-                                                    <button onClick={function(){
-                                                        upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).concat('Nueva columna'));
-                                                    }} style={{padding:'3px 10px',borderRadius:6,background:'#500724',
-                                                        color:'#fbcfe8',border:'1px solid #ec4899',fontSize:10,
-                                                        fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
+                                                <span style={{fontSize:10,fontWeight:700,color:'#ec4899',display:'block',marginBottom:6}}>LARGOS (cm)</span>
+                                                <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:6}}>
+                                                    {LARGOS_TERM.map(function(col){
+                                                        var on=(ficha.largosTermActivos||[]).includes(col);
+                                                        return (
+                                                            <button key={col} onClick={function(){toggleCol(ficha.id,'largosTermActivos',col);}}
+                                                                style={{padding:'3px 9px',borderRadius:6,fontSize:10,fontWeight:700,cursor:'pointer',
+                                                                    border:'1px solid '+(on?'#ec4899':'#374151'),
+                                                                    background:on?'#500724':'#1f2937',
+                                                                    color:on?'#fbcfe8':'#6b7280'}}>
+                                                                {col}
+                                                            </button>
+                                                        );
+                                                    })}
                                                 </div>
-                                                {(ficha.largosTermActivos||[]).map(function(col,ci){
-                                                    return (
-                                                        <div key={ci} style={{display:'flex',gap:6,marginBottom:5,alignItems:'center'}}>
-                                                            <input value={col}
-                                                                onChange={function(e){
-                                                                    var v=e.target.value;
-                                                                    var arr=(ficha.largosTermActivos||[]).map(function(x,xi){return xi===ci?v:x;});
-                                                                    upd(ficha.id,'largosTermActivos',arr);
-                                                                }}
-                                                                style={{flex:1,background:'#0d1520',border:'1px solid #500724',
-                                                                    color:'#fbcfe8',borderRadius:6,padding:'5px 10px',
-                                                                    fontSize:11,outline:'none'}}/>
-                                                            <button onClick={function(){
-                                                                upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).filter(function(_,xi){return xi!==ci;}));
-                                                            }} style={{background:'#7f1d1d',color:'#fca5a5',border:'none',
-                                                                borderRadius:5,padding:'4px 8px',cursor:'pointer',fontWeight:800,
-                                                                fontSize:12,flexShrink:0}}>×</button>
-                                                        </div>
-                                                    );
-                                                })}
-                                                {(!ficha.largosTermActivos||ficha.largosTermActivos.length===0) && (
-                                                    <p style={{margin:0,fontSize:10,color:'#374151',fontStyle:'italic'}}>Sin columnas.</p>
-                                                )}
+                                                <input value={ficha.largoTermExtra||''}
+                                                    onChange={function(e){upd(ficha.id,'largoTermExtra',e.target.value);}}
+                                                    placeholder="Columna personalizada..."
+                                                    style={Object.assign({},S.inp,{fontSize:10})}/>
                                             </div>
                                         </div>
                                     </div>
@@ -2784,17 +2503,17 @@ const EnhebradoTab = ({ structures }) => {
                                             </p>
                                         ) : (
                                             <div style={{overflowX:'auto'}}>
-                                                <table style={{borderCollapse:'collapse',width:'max-content',minWidth:'100%',fontSize:11,tableLayout:'auto'}}>
+                                                <table style={{borderCollapse:'collapse',width:'100%',fontSize:11}}>
                                                     <thead>
                                                         <tr>
                                                             <th rowSpan={2} style={{background:'#78350f',color:'#fef3c7',fontSize:10,
                                                                 fontWeight:800,textTransform:'uppercase',padding:'6px 10px',
                                                                 border:'1px solid #92400e',textAlign:'center',
-                                                                verticalAlign:'middle',minWidth:70,width:70}}>TALLAS</th>
+                                                                verticalAlign:'middle',minWidth:70}}>TALLAS</th>
                                                             <th rowSpan={2} style={{background:'#78350f',color:'#fef3c7',fontSize:10,
                                                                 fontWeight:800,textTransform:'uppercase',padding:'6px 8px',
                                                                 border:'1px solid #92400e',textAlign:'center',
-                                                                verticalAlign:'middle',minWidth:44,width:44}}>LÍMITE</th>
+                                                                verticalAlign:'middle',minWidth:44}}>LÍMITE</th>
                                                             {anchosT.length>0 && (
                                                                 <th colSpan={anchosT.length} style={{background:'#451a03',
                                                                     color:'#fcd34d',fontSize:10,fontWeight:800,
@@ -2814,10 +2533,10 @@ const EnhebradoTab = ({ structures }) => {
                                                         </tr>
                                                         <tr style={{background:'#0d1520'}}>
                                                             {anchosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:80,width:80,fontSize:9})}>{col}</th>;
+                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:52,fontSize:9})}>{col}</th>;
                                                             })}
                                                             {largosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:80,width:80,fontSize:9})}>{col}</th>;
+                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:52,fontSize:9})}>{col}</th>;
                                                             })}
                                                         </tr>
                                                     </thead>
@@ -2864,7 +2583,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                             var val=(mt[lim]||{})[col]||'';
                                                                             return (
                                                                                 <td key={col} style={{border:'1px solid #1f2937',
-                                                                                    padding:'1px 2px',minWidth:80,width:80,
+                                                                                    padding:'1px 2px',
                                                                                     background:isEdge?'#200a08':'#111827'}}>
                                                                                     <input value={val}
                                                                                         onChange={function(e){
@@ -2875,9 +2594,8 @@ const EnhebradoTab = ({ structures }) => {
                                                                                             mt2[talla][lim][col]=v;
                                                                                             upd(ficha.id,'medidasTerminado',mt2);
                                                                                         }}
-                                                                                        style={{width:'100%',background:'transparent',
+                                                                                        style={{width:52,background:'transparent',
                                                                                             border:'none',outline:'none',
-                                                                                            boxSizing:'border-box',
                                                                                             color:isEdge?'#ef4444':'#e2e8f0',
                                                                                             fontSize:11,textAlign:'center',
                                                                                             padding:'4px 2px',
@@ -3314,47 +3032,14 @@ const EnhebradoTab = ({ structures }) => {
 
         /* ── Backup JSON ── */
         const exportBackup = () => {
-            // Include ALL data: F-CIR-002 precosteos + FT-CIR-004 medidas + enhebrado
-            let ft004Data = [];
-            let enhData   = {};
-            try { ft004Data = JSON.parse(localStorage.getItem('swantex_ft004_v2')||'[]'); } catch(e){}
-            try { enhData   = JSON.parse(localStorage.getItem('swantex_enh_v2')||'{}'); } catch(e){}
-            const backup = {
-                version:    2,
-                exportedAt: new Date().toISOString(),
-                precosteos: structures,
-                ft004:      ft004Data,
-                enhebrado:  enhData,
-            };
-            const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
+            const blob = new Blob([JSON.stringify(structures, null, 2)], {type:'application/json'});
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
+            a.download = `Swantex_Backup_${Date.now()}.json`; a.click();
         };
         const importBackup = e => {
             const f = e.target.files[0]; if (!f) return;
             const r = new FileReader();
-            r.onload = ev => {
-                try {
-                    const d = JSON.parse(ev.target.result);
-                    if (Array.isArray(d)) {
-                        // Old format v1 — only precosteos
-                        persist(d);
-                        alert('Backup restaurado: ' + d.length + ' fichas de precosteos.');
-                    } else if (d && d.version === 2) {
-                        // New format v2 — all data
-                        if (Array.isArray(d.precosteos)) persist(d.precosteos);
-                        if (Array.isArray(d.ft004) && d.ft004.length > 0) {
-                            localStorage.setItem('swantex_ft004_v2', JSON.stringify(d.ft004));
-                        }
-                        if (d.enhebrado && Object.keys(d.enhebrado).length > 0) {
-                            localStorage.setItem('swantex_enh_v2', JSON.stringify(d.enhebrado));
-                        }
-                        alert('Backup restaurado:\n• ' + (d.precosteos||[]).length + ' fichas de precosteos\n• ' + (d.ft004||[]).length + ' fichas FT-CIR-004\n• Enhebrado incluido\n\nRecarga la página para ver los datos.');
-                    } else {
-                        alert('Formato de backup no reconocido.');
-                    }
-                } catch(err) { alert('Archivo inválido: ' + err.message); }
-            };
+            r.onload = ev => { try { const d = JSON.parse(ev.target.result); if (Array.isArray(d)) persist(d); } catch { alert('Archivo inválido.'); } };
             r.readAsText(f); e.target.value='';
         };
 
@@ -3649,7 +3334,6 @@ const EnhebradoTab = ({ structures }) => {
             setIsExporting(true);
             setTimeout(() => {
                 try {
-                    const TALLAS_DEF_PDF=['S','SM','M','L','L/XL','XL','XXL','3XL','Única'];
                     const { jsPDF } = window.jspdf;
                     /* Always start portrait; we add landscape page only for matrix */
                     const doc = new jsPDF({ unit:'mm', format:'a4', orientation:'portrait' });
@@ -3734,7 +3418,7 @@ const EnhebradoTab = ({ structures }) => {
                         y+=23;
 
                         /* ══ TALLAS ══ */
-                        const tallasOk=TALLAS_DEF_PDF.filter(t=>(ft.tallasCheck||{})[t]);
+                        const tallasOk=Object.keys(ft.tallasCheck||{}).filter(t=>ft.tallasCheck[t]);
                         if(ft.tallaExtra) tallasOk.push(ft.tallaExtra);
                         sf('#064e3b'); doc.rect(ML,y,CW,12,'F');
                         B(6.5,'#6ee7b7'); doc.text('TALLAS APROBADAS', ML+3, y+4.5);
@@ -4072,7 +3756,7 @@ const EnhebradoTab = ({ structures }) => {
                                     doc.text(t,ML+lblW+ci*colW+colW/2,y+4.5,{align:'center'});
                                 });
                                 y+=6.5;
-                                tallasOk.filter(t=>ft.medidasCrudo[t]).forEach(talla=>{
+                                Object.keys(ft.medidasCrudo).forEach(talla=>{
                                     y=checkPage(y,20);
                                     const mc=ft.medidasCrudo[talla]||{};
                                     const diam=mc['__diam__']||'';
