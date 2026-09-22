@@ -33,20 +33,6 @@
                 }catch(e){console.error('Firebase error:',e);}
             }
             initFB();
-            window.SWANTEX_CONFIG={
-                BASE_URL:'https://dp522-ops.github.io/swantex-fichas',
-                EMAILJS_KEY:'GthShpkKOx_i3gBug',
-                EMAILJS_SERVICE:'service_3erkcak',
-                EMAILJS_TPL:'template_yyd2s6i',
-                CORREO_CIRCULARES:'circularesprod@gmail.com',
-                JEFATURAS_CORREO:{
-                    'BF-3817':{nombre:'Bella Forero',rol:'Armado y Calidad',correos:['ayc@swantex.com.co','AsistenteAyC@swantex.com.co']},
-                    'MA-6524':{nombre:'Marisol Álvarez',rol:'Corsetera',correos:['corseteria@swantex.com.co']},
-                    'PL-9043':{nombre:'Paola López',rol:'Calidad',correos:['calidad@swantex.com.co']},
-                    'CP-7261':{nombre:'Camila Prias',rol:'Diseño',correos:['diseno@swantex.com.co','tinsolenzia@swantex.com.co']},
-                    'DP-9034':{nombre:'David Posada',rol:'Producción',correos:['dposada@swantex.com.co']}
-                }
-            };
         })();
     </script>
     <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
@@ -1044,8 +1030,8 @@ const EnhebradoTab = ({ structures }) => {
         };
 
         // Send all 4 approval emails at once
-        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado) => {
-            const roles = ['BF-3817','MA-6524','PL-9043','CP-7261'];
+        const enviarTodasLasAprobaciones = async (ficha, setEnviando, setResultado, rolesArr) => {
+            const roles = rolesArr && rolesArr.length > 0 ? rolesArr : ['BF-3817','MA-6524','PL-9043','CP-7261'];
             setEnviando(true);
             setResultado(null);
             const resultados = [];
