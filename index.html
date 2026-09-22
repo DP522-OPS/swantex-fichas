@@ -2311,72 +2311,53 @@ const EnhebradoTab = ({ structures }) => {
                                 </button>
 
                                 {/* Botón enviar TODAS las fichas del mismo producto */}
-                                {(function(){
-                                    var fichasProducto = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
-                                    if(fichasProducto.length < 2) return null;
-                                    var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
-                                    return React.createElement('button', {
-                                        disabled: enviandoTodas || enviando || rolesArr.length===0,
-                                        onClick: async function(){
+                                {fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length >= 2 && (
+                                    <button
+                                        disabled={enviandoTodas||enviando||Object.values(rolesSelec).filter(Boolean).length===0}
+                                        onClick={async function(){
+                                            var fichasCopy = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
+                                            var rolesArrCopy = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
-                                            var rolesArrCopy = rolesArr.slice();
-                                            var fichasCopy = fichasProducto.slice();
                                             try {
                                                 for(var i=0; i<fichasCopy.length; i++){
                                                     var fItem = fichasCopy[i];
                                                     var fId = fItem.id;
-                                                    (function(id){ setFbSyncStatus(function(p){ var o=Object.assign({},p); o[id]='syncing'; return o; }); })(fId);
+                                                    var syncId = fId;
+                                                    setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:'syncing'}); });
                                                     var rItem = await fbGuardarFicha(fItem);
-                                                    (function(id, ok){ setFbSyncStatus(function(p){ var o=Object.assign({},p); o[id]=ok?'synced':'error'; return o; }); })(fId, rItem.ok);
+                                                    var syncOk = rItem.ok;
+                                                    setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:syncOk?'synced':'error'}); });
                                                     if(!rItem.ok){ errores.push(fItem.talla||fId); continue; }
-                                                    (function(id){
-                                                        fbEscucharFicha(id, function(data){
-                                                            setFichas(function(prev){
-                                                                var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
-                                                                save(n); return n;
-                                                            });
+                                                    fbEscucharFicha(fId, function(data){
+                                                        setFichas(function(prev){
+                                                            var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
+                                                            save(n); return n;
                                                         });
-                                                    })(fId);
-                                                    var cfg = window.SWANTEX_CONFIG;
+                                                    });
                                                     for(var j=0; j<rolesArrCopy.length; j++){
-                                                        var rolKey = rolesArrCopy[j];
-                                                        var jef = cfg.JEFATURAS_CORREO[rolKey];
-                                                        if(!jef) continue;
-                                                        var link = fichaToLink(fItem, rolKey);
-                                                        try {
-                                                            await emailjs.send(cfg.EMAILJS_SERVICE, cfg.EMAILJS_TPL, {
-                                                                to_name: jef.nombre,
-                                                                to_email: jef.correos[0],
-                                                                producto: fItem.producto||'(sin nombre)',
-                                                                talla: fItem.talla||'',
-                                                                referencia: fItem.referencia||'',
-                                                                link_aprobacion: link,
-                                                                rol_aprobador: jef.rol
-                                                            }, cfg.EMAILJS_KEY);
-                                                        } catch(e){ console.warn('Email error',rolKey,e); }
+                                                        try { await enviarCorreoAprobacion(fItem, rolesArrCopy[j]); }
+                                                        catch(e){ console.warn('Email error',rolesArrCopy[j],e); }
                                                     }
                                                 }
                                                 if(errores.length>0){
-                                                    setResultadoTodas({ok:false, msg:'Error al guardar talla(s): '+errores.join(', ')});
+                                                    setResultadoTodas({ok:false, msg:'Error guardando talla(s): '+errores.join(', ')});
                                                 } else {
                                                     setResultadoTodas({ok:true, msg:'✅ Correos enviados para '+fichasCopy.length+' fichas · '+rolesArrCopy.length+' rol(es)'});
                                                 }
                                             } catch(err){
-                                                setResultadoTodas({ok:false, msg:'Error inesperado: '+String(err)});
-                                            } finally {
-                                                setEnviandoTodas(false);
+                                                setResultadoTodas({ok:false, msg:'Error: '+String(err)});
                                             }
-                                        },
-                                        style:{
-                                            padding:'10px 20px',borderRadius:10,border:'2px solid #7c3aed',
+                                            setEnviandoTodas(false);
+                                        }}
+                                        style={{padding:'10px 20px',borderRadius:10,border:'2px solid #7c3aed',
                                             background:enviandoTodas?'#374151':'#4c1d95',color:'#e9d5ff',
                                             fontWeight:800,fontSize:12,cursor:'pointer',
-                                            opacity:rolesArr.length===0?0.5:1
-                                        }
-                                    }, enviandoTodas?'⏳ Enviando todas...':'📦 Enviar todas las fichas ('+fichasProducto.length+')');
-                                })()}
+                                            opacity:Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
+                                        {enviandoTodas?'⏳ Enviando todas...':'📦 Enviar todas las fichas ('+fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length+')'}
+                                    </button>
+                                )}
 
                                 <button
                                     onClick={async function(){
