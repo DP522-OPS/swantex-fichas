@@ -1214,14 +1214,9 @@ const EnhebradoTab = ({ structures }) => {
                     setTimeout(async function() {
                         const data = await fbLeerFicha(fichaIdParam);
                         if (data) {
-                            setFichas(function(prev) {
-                                const exists = prev.find(function(f){ return f.id===fichaIdParam; });
-                                const merged = exists
-                                    ? prev.map(function(f){ return f.id===fichaIdParam ? data : f; })
-                                    : [data, ...prev];
-                                save(merged);
-                                return merged;
-                            });
+                            // En modo aprobación solo mostramos la ficha que corresponde
+                            // NO guardamos en localStorage para no contaminar el dispositivo del aprobador
+                            setFichas([data]);
                             setActivaId(fichaIdParam);
                         } else {
                             alert('No se encontró la ficha. Pide al elaborador que la guarde en la nube primero.');
