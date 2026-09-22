@@ -2291,7 +2291,7 @@ const EnhebradoTab = ({ structures }) => {
                                         setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:r.ok?'synced':'error'});});
                                         if (!r.ok){ alert('Error guardando en nube: '+r.err); return; }
                                         // Escuchar cambios en tiempo real
-                                        var unsub = fbEscucharFicha(ficha.id, function(data){
+                                        fbEscucharFicha(ficha.id, function(data){
                                             setFichas(function(prev){
                                                 var n=prev.map(function(f){return f.id===data.id?data:f;});
                                                 save(n); return n;
@@ -2305,8 +2305,50 @@ const EnhebradoTab = ({ structures }) => {
                                         background:enviando?'#374151':'#2563eb',color:'#fff',
                                         fontWeight:800,fontSize:12,cursor:'pointer',
                                         opacity:!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
-                                    {enviando?'⏳ Enviando...':'📤 Enviar Correos'}
+                                    {enviando?'⏳ Enviando...':'📤 Enviar esta ficha'}
                                 </button>
+
+                                {/* Botón enviar TODAS las fichas del mismo producto */}
+                                {(function(){
+                                    var fichasProducto = fichas.filter(function(f){ return f.producto && ficha.producto && f.producto===ficha.producto; });
+                                    if(fichasProducto.length < 2) return null;
+                                    var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
+                                    return React.createElement('button', {
+                                        disabled: enviando || rolesArr.length===0,
+                                        onClick: async function(){
+                                            if(!confirm('Se enviarán correos de aprobación para '+fichasProducto.length+' fichas de "'+ficha.producto+'". ¿Continuar?')) return;
+                                            setEnviando(true);
+                                            setResultado(null);
+                                            var errores = [];
+                                            for(var i=0; i<fichasProducto.length; i++){
+                                                var f = fichasProducto[i];
+                                                setFbSyncStatus(function(p){ return Object.assign({},p,{[f.id]:'syncing'}); });
+                                                var r = await fbGuardarFicha(f);
+                                                setFbSyncStatus(function(p){ return Object.assign({},p,{[f.id]:r.ok?'synced':'error'}); });
+                                                if(!r.ok){ errores.push(f.talla||f.id); continue; }
+                                                fbEscucharFicha(f.id, function(data){
+                                                    setFichas(function(prev){
+                                                        var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
+                                                        save(n); return n;
+                                                    });
+                                                });
+                                                await enviarTodasLasAprobaciones(f, function(){}, function(){}, rolesArr);
+                                            }
+                                            setEnviando(false);
+                                            if(errores.length>0){
+                                                setResultado({ok:false, msg:'Error al guardar talla(s): '+errores.join(', ')});
+                                            } else {
+                                                setResultado({ok:true, msg:'✅ Correos enviados para todas las fichas de '+ficha.producto+' ('+fichasProducto.length+' fichas)'});
+                                            }
+                                        },
+                                        style:{
+                                            padding:'10px 20px',borderRadius:10,border:'2px solid #7c3aed',
+                                            background:enviando?'#374151':'#4c1d95',color:'#e9d5ff',
+                                            fontWeight:800,fontSize:12,cursor:'pointer',
+                                            opacity:rolesArr.length===0?0.5:1
+                                        }
+                                    }, enviando?'⏳ Enviando...':'📦 Enviar todas las fichas ('+fichasProducto.length+')');
+                                })()}
 
                                 <button
                                     onClick={async function(){
