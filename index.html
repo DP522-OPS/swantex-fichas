@@ -2742,17 +2742,17 @@ const EnhebradoTab = ({ structures }) => {
                                             </p>
                                         ) : (
                                             <div style={{overflowX:'auto'}}>
-                                                <table style={{borderCollapse:'collapse',width:'100%',fontSize:11,tableLayout:'fixed'}}>
+                                                <table style={{borderCollapse:'collapse',width:'max-content',minWidth:'100%',fontSize:11,tableLayout:'auto'}}>
                                                     <thead>
                                                         <tr>
                                                             <th rowSpan={2} style={{background:'#78350f',color:'#fef3c7',fontSize:10,
                                                                 fontWeight:800,textTransform:'uppercase',padding:'6px 10px',
                                                                 border:'1px solid #92400e',textAlign:'center',
-                                                                verticalAlign:'middle',minWidth:70}}>TALLAS</th>
+                                                                verticalAlign:'middle',minWidth:70,width:70}}>TALLAS</th>
                                                             <th rowSpan={2} style={{background:'#78350f',color:'#fef3c7',fontSize:10,
                                                                 fontWeight:800,textTransform:'uppercase',padding:'6px 8px',
                                                                 border:'1px solid #92400e',textAlign:'center',
-                                                                verticalAlign:'middle',minWidth:44}}>LÍMITE</th>
+                                                                verticalAlign:'middle',minWidth:44,width:44}}>LÍMITE</th>
                                                             {anchosT.length>0 && (
                                                                 <th colSpan={anchosT.length} style={{background:'#451a03',
                                                                     color:'#fcd34d',fontSize:10,fontWeight:800,
@@ -2772,10 +2772,10 @@ const EnhebradoTab = ({ structures }) => {
                                                         </tr>
                                                         <tr style={{background:'#0d1520'}}>
                                                             {anchosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:52,fontSize:9})}>{col}</th>;
+                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:80,width:80,fontSize:9})}>{col}</th>;
                                                             })}
                                                             {largosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:52,fontSize:9})}>{col}</th>;
+                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:80,width:80,fontSize:9})}>{col}</th>;
                                                             })}
                                                         </tr>
                                                     </thead>
@@ -2822,7 +2822,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                             var val=(mt[lim]||{})[col]||'';
                                                                             return (
                                                                                 <td key={col} style={{border:'1px solid #1f2937',
-                                                                                    padding:'1px 2px',
+                                                                                    padding:'1px 2px',minWidth:80,width:80,
                                                                                     background:isEdge?'#200a08':'#111827'}}>
                                                                                     <input value={val}
                                                                                         onChange={function(e){
