@@ -1573,7 +1573,7 @@ const EnhebradoTab = ({ structures }) => {
                         <p style={{fontSize:14,fontWeight:700}}>Crea una nueva FT-CIR-004</p>
                     </div>
                 ) : (
-                    <div style={{flex:1,minWidth:0}}>
+                    <div key={ficha.id} style={{flex:1,minWidth:0}}>
 
                         {/* ─── HEADER FICHA ─── */}
                         <div style={{background:'#0d1520',border:'1px solid #1f2e42',
