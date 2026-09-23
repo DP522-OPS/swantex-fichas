@@ -2358,7 +2358,7 @@ const EnhebradoTab = ({ structures }) => {
                                                 if(errores.length>0){
                                                     setResultadoTodas({ok:false, msg:'Error guardando talla(s): '+errores.join(', ')});
                                                 } else {
-                                                    setResultadoTodas({ok:true, msg:'✅ Correos enviados para '+fichasCopy.length+' fichas · '+rolesArrCopy.length+' rol(es)'});
+                                                    setResultadoTodas({ok:true, msg:'✅ Correos enviados para '+fichasCopy.length+' ficha(s)'});
                                                 }
                                             } catch(err){
                                                 setResultadoTodas({ok:false, msg:'Error: '+String(err)});
