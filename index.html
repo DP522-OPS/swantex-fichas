@@ -1323,6 +1323,21 @@ const EnhebradoTab = ({ structures }) => {
             const n = [nf, ...fichas];
             setFichas(n); save(n); setActivaId(id);
         };
+
+        const duplicarFicha = (fichaOrigen) => {
+            const id = 'FT004-' + Date.now();
+            const copia = JSON.parse(JSON.stringify(fichaOrigen));
+            copia.id = id;
+            copia.status = 'BORRADOR';
+            // Limpiar aprobaciones de la copia
+            copia.aproboArmado    = { nombre:'', rol:'', fecha:'', codigo:'', bloqueado:false };
+            copia.aproboCorseteria= { nombre:'', rol:'', fecha:'', codigo:'', bloqueado:false };
+            copia.aproboCalidad   = { nombre:'', rol:'', fecha:'', codigo:'', bloqueado:false };
+            copia.aproboDiseno    = { nombre:'', rol:'', fecha:'', codigo:'', bloqueado:false };
+            copia.fechaAprobacion = '';
+            const n = [copia, ...fichas];
+            setFichas(n); save(n); setActivaId(id);
+        };
         const delFicha = (id) => {
             if (!window.confirm('¿Eliminar esta ficha FT-CIR-004?')) return;
             const n = fichas.filter(f=>f.id!==id);
@@ -1511,24 +1526,35 @@ const EnhebradoTab = ({ structures }) => {
                         </p>
                     )}
                     {fichas.map(f=>(
-                        <div key={f.id} onClick={()=>setActivaId(f.id)}
-                            style={{padding:'10px 12px',borderRadius:10,marginBottom:6,cursor:'pointer',
-                                background:f.id===activaId?'#1f2937':'#111827',
-                                border:'1px solid '+(f.id===activaId?'#10b981':'#1f2937'),
-                                transition:'all 0.15s'}}>
-                            <p style={{margin:'0 0 3px',fontSize:11,fontWeight:800,color:'#f1f5f9',
-                                overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                                {f.producto||'Sin producto'}
-                            </p>
-                            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                <span style={{fontSize:9,color:'#4b5563',fontWeight:600}}>FT-CIR-004</span>
-                                <span style={{fontSize:9,fontWeight:800,
-                                    color:statusColor[f.status]||'#6b7280',
-                                    background:(statusColor[f.status]||'#6b7280')+'22',
-                                    padding:'1px 6px',borderRadius:99}}>
-                                    {f.status}
-                                </span>
+                        <div key={f.id} style={{marginBottom:6}}>
+                            <div onClick={()=>setActivaId(f.id)}
+                                style={{padding:'10px 12px',borderRadius:10,cursor:'pointer',
+                                    background:f.id===activaId?'#1f2937':'#111827',
+                                    border:'1px solid '+(f.id===activaId?'#10b981':'#1f2937'),
+                                    transition:'all 0.15s'}}>
+                                <p style={{margin:'0 0 3px',fontSize:11,fontWeight:800,color:'#f1f5f9',
+                                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                    {f.producto||'Sin producto'}
+                                </p>
+                                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                                    <span style={{fontSize:9,color:'#4b5563',fontWeight:600}}>FT-CIR-004</span>
+                                    <span style={{fontSize:9,fontWeight:800,
+                                        color:statusColor[f.status]||'#6b7280',
+                                        background:(statusColor[f.status]||'#6b7280')+'22',
+                                        padding:'1px 6px',borderRadius:99}}>
+                                        {f.status}
+                                    </span>
+                                </div>
                             </div>
+                            {f.id===activaId && (
+                                <button onClick={function(e){ e.stopPropagation(); duplicarFicha(f); }}
+                                    style={{width:'100%',marginTop:3,padding:'5px',borderRadius:7,
+                                        border:'1px dashed #374151',background:'transparent',
+                                        color:'#6b7280',fontSize:9,fontWeight:700,cursor:'pointer',
+                                        letterSpacing:'0.04em'}}>
+                                    ⧉ Duplicar esta ficha
+                                </button>
+                            )}
                         </div>
                     ))}
                 </div>
@@ -2220,9 +2246,9 @@ const EnhebradoTab = ({ structures }) => {
                                 )}
                             </div>
 
-                            {/* Selector de aprobadores */}
+                            {/* Selector de aprobadores — guardado en la ficha */}
                             <p style={{margin:'0 0 8px',fontSize:9,fontWeight:800,color:'#6b7280',textTransform:'uppercase'}}>
-                                ¿Quién debe aprobar esta referencia?
+                                ¿Quién debe aprobar esta ficha?
                             </p>
                             <div style={{display:'flex',flexWrap:'wrap',gap:8,marginBottom:14}}>
                                 {[
@@ -2231,17 +2257,17 @@ const EnhebradoTab = ({ structures }) => {
                                     {key:'PL-9043',nombre:'Paola López',     rol:'Calidad',          col:'#f59e0b'},
                                     {key:'CP-7261',nombre:'Camila Prias',    rol:'Diseño',           col:'#ec4899'},
                                 ].map(function(item){
-                                    var sel = rolesSelec[item.key];
+                                    var rolesApr = ficha.rolesAprobadores || {'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
+                                    var sel = !!rolesApr[item.key];
                                     var aprKey = item.key==='BF-3817'?'aproboArmado':item.key==='MA-6524'?'aproboCorseteria':item.key==='PL-9043'?'aproboCalidad':'aproboDiseno';
                                     var apr = ficha[aprKey]||{};
                                     return (
                                         <button key={item.key}
                                             onClick={function(){
-                                                setRolesSelec(function(prev){
-                                                    var n=Object.assign({},prev);
-                                                    n[item.key]=!n[item.key];
-                                                    return n;
-                                                });
+                                                var cur = ficha.rolesAprobadores || {'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
+                                                var next = Object.assign({},cur);
+                                                next[item.key] = !next[item.key];
+                                                upd(ficha.id,'rolesAprobadores',next);
                                             }}
                                             style={{padding:'7px 14px',borderRadius:9,cursor:'pointer',
                                                 border:'2px solid '+(sel?item.col:'#374151'),
@@ -2257,19 +2283,19 @@ const EnhebradoTab = ({ structures }) => {
                                                 {sel?'✓':''}
                                             </span>
                                             {item.nombre}
-                                            {apr.bloqueado && <span style={{fontSize:8,background:'#065f46',color:'#6ee7b7',padding:'1px 5px',borderRadius:99}}>✓</span>}
+                                            {apr.bloqueado && <span style={{fontSize:8,background:'#065f46',color:'#6ee7b7',padding:'1px 5px',borderRadius:99}}>✓ Aprobado</span>}
                                         </button>
                                     );
                                 })}
                             </div>
                             <p style={{margin:'0 0 14px',fontSize:9,color:'#374151'}}>
-                                {Object.values(rolesSelec).filter(Boolean).length} aprobador(es) seleccionado(s)
+                                {Object.values(ficha.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true}).filter(Boolean).length} aprobador(es) seleccionado(s) para esta ficha
                             </p>
 
                             {/* Botones acción */}
                             <div style={{display:'flex',gap:10,flexWrap:'wrap',marginBottom:12}}>
                                 <button
-                                    disabled={enviando||!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0}
+                                    disabled={enviando||!ficha.producto||Object.values(ficha.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true}).filter(Boolean).length===0}
                                     onClick={async function(){
                                         setFbSyncStatus(function(p){return Object.assign({},p,{[ficha.id]:'syncing'});});
                                         var r = await fbGuardarFicha(ficha);
@@ -2282,24 +2308,26 @@ const EnhebradoTab = ({ structures }) => {
                                                 save(n); return n;
                                             });
                                         });
-                                        // Enviar solo a los seleccionados
-                                        var rolesArr = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
+                                        // Enviar solo a los seleccionados en esta ficha
+                                        var rolesAprFicha = ficha.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
+                                        var rolesArr = Object.keys(rolesAprFicha).filter(function(k){return rolesAprFicha[k];});
                                         await enviarTodasLasAprobaciones(ficha, setEnviando, setResultado, rolesArr);
                                     }}
                                     style={{padding:'10px 20px',borderRadius:10,border:'none',
                                         background:enviando?'#374151':'#2563eb',color:'#fff',
                                         fontWeight:800,fontSize:12,cursor:'pointer',
-                                        opacity:!ficha.producto||Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
+                                        opacity:!ficha.producto||Object.values(ficha.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true}).filter(Boolean).length===0?0.5:1}}>
                                     {enviando?'⏳ Enviando...':'📤 Enviar esta ficha'}
                                 </button>
 
                                 {/* Botón enviar TODAS las fichas del mismo producto */}
                                 {fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length >= 2 && (
                                     <button
-                                        disabled={enviandoTodas||enviando||Object.values(rolesSelec).filter(Boolean).length===0}
+                                        disabled={enviandoTodas||enviando}
                                         onClick={async function(){
                                             var fichasCopy = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
-                                            var rolesArrCopy = Object.keys(rolesSelec).filter(function(k){return rolesSelec[k];});
+                                            // Cada ficha usa sus propios roles aprobadores
+                                            var rolesArrCopy = null; // se calcula por ficha abajo
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
@@ -2319,9 +2347,12 @@ const EnhebradoTab = ({ structures }) => {
                                                             save(n); return n;
                                                         });
                                                     });
-                                                    for(var j=0; j<rolesArrCopy.length; j++){
-                                                        try { await enviarCorreoAprobacion(fItem, rolesArrCopy[j]); }
-                                                        catch(e){ console.warn('Email error',rolesArrCopy[j],e); }
+                                                    // Usar los roles aprobadores de cada ficha individual
+                                                    var rolesEstaFicha = fItem.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
+                                                    var rolesEstaArr = Object.keys(rolesEstaFicha).filter(function(k){return rolesEstaFicha[k];});
+                                                    for(var j=0; j<rolesEstaArr.length; j++){
+                                                        try { await enviarCorreoAprobacion(fItem, rolesEstaArr[j]); }
+                                                        catch(e){ console.warn('Email error',rolesEstaArr[j],e); }
                                                     }
                                                 }
                                                 if(errores.length>0){
@@ -3246,6 +3277,18 @@ const EnhebradoTab = ({ structures }) => {
             const s = newStructure();
             persist([s, ...structures]);
             setExpandedId(s.id);
+        };
+
+        const duplicateStructure = (origen) => {
+            const copia = JSON.parse(JSON.stringify(origen));
+            copia.id = 'STRUCT-' + Date.now();
+            if (copia.header) {
+                copia.header.status = 'BORRADOR';
+                copia.header.createdAt = Date.now();
+                copia.header.updatedAt = Date.now();
+            }
+            persist([copia, ...structures]);
+            setExpandedId(copia.id);
         };
 
         const deleteStructure = (id) => {
@@ -4300,6 +4343,7 @@ const EnhebradoTab = ({ structures }) => {
                                     onUpdate={updateField} onMachineChange={handleMachineChange}
                                     onFibraUpdate={updateFibra} onFibraRemove={removeFibra}
                                     onDelete={deleteStructure}
+                                    onDuplicate={duplicateStructure}
                                     realIdx={structures.findIndex(x=>x.id===s.id)}
                                 />
                             ))}
@@ -4321,7 +4365,7 @@ const EnhebradoTab = ({ structures }) => {
     /* ══════════════════════════════════════════
        COMPONENTE FICHA CARD
     ══════════════════════════════════════════ */
-    const FichaCard = ({ s, idx, realIdx, isExpanded, onToggle, onUpdate, onMachineChange, onFibraUpdate, onFibraRemove, onDelete }) => {
+    const FichaCard = ({ s, idx, realIdx, isExpanded, onToggle, onUpdate, onMachineChange, onFibraUpdate, onFibraRemove, onDelete, onDuplicate }) => {
         const tubos = parseInt(s.header.tubosPorDocena)||12;
         const dW = (parseFloat(s.specs.pesoUnitarioGramos)||0) * tubos;
         const totalPct = s.fibras.reduce((a,f)=>a+(f.porcentaje||0), 0);
@@ -4420,6 +4464,8 @@ const EnhebradoTab = ({ structures }) => {
                         <button className="btn btn-dark" onClick={onToggle} style={{padding:'8px 14px'}}>
                             {isExpanded ? '▲ Cerrar' : '▼ Expandir'}
                         </button>
+                        <button className="btn btn-dark" style={{padding:'8px 10px',border:'1px dashed #374151',color:'#9ca3af'}} onClick={()=>onDuplicate(s)}
+                            title="Duplicar ficha">⧉</button>
                         <button className="btn btn-red" style={{padding:'8px 10px'}} onClick={()=>onDelete(s.id)}
                             title="Eliminar ficha"><Ico.Trash/></button>
                     </div>
