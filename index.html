@@ -2320,12 +2320,12 @@ const EnhebradoTab = ({ structures }) => {
                                     {enviando?'⏳ Enviando...':'📤 Enviar esta ficha'}
                                 </button>
 
-                                {/* Botón enviar TODAS las fichas del mismo producto */}
-                                {fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length >= 2 && (
+                                {/* Botón enviar TODAS las fichas */}
+                                {fichas.length >= 2 && (
                                     <button
                                         disabled={enviandoTodas||enviando}
                                         onClick={async function(){
-                                            var fichasCopy = fichas.filter(function(fp){ return fp.producto && ficha.producto && fp.producto===ficha.producto; });
+                                            var fichasCopy = fichas.slice();
                                             // Cada ficha usa sus propios roles aprobadores
                                             var rolesArrCopy = null; // se calcula por ficha abajo
                                             setEnviandoTodas(true);
@@ -2369,7 +2369,7 @@ const EnhebradoTab = ({ structures }) => {
                                             background:enviandoTodas?'#374151':'#4c1d95',color:'#e9d5ff',
                                             fontWeight:800,fontSize:12,cursor:'pointer',
                                             opacity:Object.values(rolesSelec).filter(Boolean).length===0?0.5:1}}>
-                                        {enviandoTodas?'⏳ Enviando todas...':'📦 Enviar todas las fichas ('+fichas.filter(fp=>fp.producto&&ficha.producto&&fp.producto===ficha.producto).length+')'}
+                                        {enviandoTodas?'⏳ Enviando todas...':'📦 Enviar todas las fichas ('+fichas.length+')'}
                                     </button>
                                 )}
 
