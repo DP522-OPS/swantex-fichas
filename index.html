@@ -1006,19 +1006,35 @@ const EnhebradoTab = ({ structures }) => {
                 '?fichaId=' + encodeURIComponent(ficha.id) + '&rol=' + encodeURIComponent(rolKey);
         };
 
+        // Tallas marcadas en una ficha, ej. "S-M" — para distinguir fichas del mismo producto
+        const tallasDeFicha = (ficha) => {
+            try {
+                var tc = (ficha && ficha.tallasCheck) || {};
+                var tl = Object.keys(tc).filter(function(t){ return tc[t]; });
+                if (ficha.tallaExtra) tl.push(ficha.tallaExtra);
+                return tl.join('-');
+            } catch(e) { return ''; }
+        };
+        const nombreFichaCorto = (ficha) => {
+            var t = tallasDeFicha(ficha);
+            return (ficha.producto || 'Sin producto') + (t ? ' (' + t + ')' : '');
+        };
+        // Texto legible de un error de EmailJS (vienen como {status, text})
+        const errorEmailTxt = (e) => {
+            if (!e) return 'error desconocido';
+            if (typeof e === 'string') return e;
+            var st = e.status, tx = e.text || e.message;
+            if (st || tx) return (st ? '[' + st + '] ' : '') + (tx || '');
+            try { return JSON.stringify(e); } catch(x) { return String(e); }
+        };
+
         // Send approval email to one jefatura role
         const enviarCorreoAprobacion = (ficha, rolKey) => {
             const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rolKey];
             if (!jef) return Promise.reject('Rol no encontrado');
             const link = fichaToLink(ficha, rolKey);
             // Tallas de la ficha — para distinguir fichas duplicadas en el correo
-            var tallasTxt = '';
-            try {
-                var tc = ficha.tallasCheck || {};
-                var tl = Object.keys(tc).filter(function(t){ return tc[t]; });
-                if (ficha.tallaExtra) tl.push(ficha.tallaExtra);
-                tallasTxt = tl.join('-');
-            } catch(e) {}
+            var tallasTxt = tallasDeFicha(ficha);
             const params = {
                 to_email:        jef.correos.join(','),
                 nombre_jefatura: jef.nombre,
@@ -1070,7 +1086,7 @@ const EnhebradoTab = ({ structures }) => {
                 } catch(e) {
                     const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rol];
                     resultados.push({ rol: jef ? jef.rol : rol, nombre: jef ? jef.nombre : rol,
-                        ok: false, error: String(e) });
+                        ok: false, error: errorEmailTxt(e) });
                 }
             }
             setEnviando(false);
@@ -1563,7 +1579,11 @@ const EnhebradoTab = ({ structures }) => {
                                     {f.producto||'Sin producto'}
                                 </p>
                                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                                    <span style={{fontSize:9,color:'#4b5563',fontWeight:600}}>FT-CIR-004</span>
+                                    <span style={{fontSize:9,color:'#4b5563',fontWeight:600}}>
+                                        {tallasDeFicha(f)
+                                            ? <span style={{color:'#10b981',fontWeight:800}}>Talla {tallasDeFicha(f)}</span>
+                                            : 'FT-CIR-004'}
+                                    </span>
                                     <span style={{fontSize:9,fontWeight:800,
                                         color:statusColor[f.status]||'#6b7280',
                                         background:(statusColor[f.status]||'#6b7280')+'22',
@@ -2358,6 +2378,8 @@ const EnhebradoTab = ({ structures }) => {
                                             var errores = [];
                                             var correosOk = 0;
                                             var correosFallidos = [];
+                                            var motivosError = [];
+                                            var abortado = false;
                                             try {
                                                 for(var i=0; i<fichasCopy.length; i++){
                                                     var fItem = fichasCopy[i];
@@ -2367,7 +2389,7 @@ const EnhebradoTab = ({ structures }) => {
                                                     var rItem = await fbGuardarFicha(fItem);
                                                     var syncOk = rItem.ok;
                                                     setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:syncOk?'synced':'error'}); });
-                                                    if(!rItem.ok){ errores.push(fItem.talla||fId); continue; }
+                                                    if(!rItem.ok){ errores.push(nombreFichaCorto(fItem)); continue; }
                                                     fbEscucharFicha(fId, function(data){
                                                         setFichas(function(prev){
                                                             var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
@@ -2382,14 +2404,21 @@ const EnhebradoTab = ({ structures }) => {
                                                         catch(e){
                                                             console.warn('Email error',rolesEstaArr[j],e);
                                                             var jefE = CFG.JEFATURAS_CORREO[rolesEstaArr[j]];
-                                                            correosFallidos.push((fItem.producto||fId)+' → '+(jefE?jefE.nombre:rolesEstaArr[j]));
+                                                            correosFallidos.push(nombreFichaCorto(fItem)+' → '+(jefE?jefE.nombre:rolesEstaArr[j]));
+                                                            var motivo = errorEmailTxt(e);
+                                                            if(motivosError.indexOf(motivo)<0) motivosError.push(motivo);
+                                                            // Si el primer correo falla (no por velocidad), es un problema de EmailJS: no seguir gastando intentos
+                                                            if(correosOk===0 && !(e && e.status===429)){ abortado = true; break; }
                                                         }
                                                     }
+                                                    if(abortado) break;
                                                 }
                                                 if(errores.length>0 || correosFallidos.length>0){
                                                     var partes = [];
-                                                    if(errores.length>0) partes.push('No se guardaron: '+errores.join(', '));
-                                                    if(correosFallidos.length>0) partes.push('Correos fallidos: '+correosFallidos.join(' | '));
+                                                    if(motivosError.length>0) partes.push('Motivo EmailJS: '+motivosError.join(' / '));
+                                                    if(abortado) partes.push('Se detuvo el envío en el primer error');
+                                                    if(errores.length>0) partes.push('No se guardaron en la nube: '+errores.join(', '));
+                                                    if(correosFallidos.length>0) partes.push('Fallidos: '+correosFallidos.join(' | '));
                                                     setResultadoTodas({ok:false, msg:'⚠️ '+correosOk+' correo(s) enviados. '+partes.join(' · ')});
                                                 } else {
                                                     setResultadoTodas({ok:true, msg:'✅ '+correosOk+' correo(s) enviados para '+fichasCopy.length+' ficha(s)'});
