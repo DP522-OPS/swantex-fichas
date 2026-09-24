@@ -1005,6 +1005,14 @@ const EnhebradoTab = ({ structures }) => {
             return (CFG.BASE_URL||'https://dp522-ops.github.io/swantex-fichas') +
                 '?fichaId=' + encodeURIComponent(ficha.id) + '&rol=' + encodeURIComponent(rolKey);
         };
+        // Un solo link que abre VARIAS fichas para una jefatura
+        const fichasToLink = (lista, rolKey) => {
+            return (CFG.BASE_URL||'https://dp522-ops.github.io/swantex-fichas') +
+                '?fichaIds=' + lista.map(function(f){ return encodeURIComponent(f.id); }).join(',') +
+                '&rol=' + encodeURIComponent(rolKey);
+        };
+        // Campo de aprobación de cada código de jefatura
+        const APR_KEY_POR_ROL = {'BF-3817':'aproboArmado','MA-6524':'aproboCorseteria','PL-9043':'aproboCalidad','CP-7261':'aproboDiseno'};
 
         // Tallas marcadas en una ficha, ej. "S-M" — para distinguir fichas del mismo producto
         const tallasDeFicha = (ficha) => {
@@ -1042,6 +1050,37 @@ const EnhebradoTab = ({ structures }) => {
                 producto:        (ficha.producto || '—') + (tallasTxt ? ' · Talla ' + tallasTxt : ''),
                 lcc:             ficha.lcc      || '—',
                 tem:             ficha.tem      || '—',
+                link_aprobacion: link,
+                correo_copia:    CFG.CORREO_CIRCULARES || '',
+            };
+            if (!CFG.EMAILJS_KEY || CFG.EMAILJS_KEY === 'TU_PUBLIC_KEY') {
+                console.warn('EmailJS no configurado. Link generado:', link);
+                return Promise.resolve({ link });
+            }
+            window.emailjs.init(CFG.EMAILJS_KEY);
+            return enviarConPausa(params);
+        };
+
+        // UN solo correo para una jefatura con TODAS sus fichas (ahorra cuota de EmailJS)
+        // Usa la misma plantilla: el link abre todas las fichas juntas
+        const enviarCorreoGrupo = (lista, rolKey) => {
+            if (!lista || lista.length === 0) return Promise.resolve(null);
+            if (lista.length === 1) return enviarCorreoAprobacion(lista[0], rolKey);
+            const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rolKey];
+            if (!jef) return Promise.reject('Rol no encontrado');
+            const link = fichasToLink(lista, rolKey);
+            const unicos = function(campo){
+                var vals = [];
+                lista.forEach(function(f){ var v = (f[campo]||'').toString().trim(); if (v && vals.indexOf(v) < 0) vals.push(v); });
+                return vals.length ? vals.join(', ') : '—';
+            };
+            const params = {
+                to_email:        jef.correos.join(','),
+                nombre_jefatura: jef.nombre,
+                rol:             jef.rol,
+                producto:        lista.length + ' fichas: ' + lista.map(nombreFichaCorto).join(' · '),
+                lcc:             unicos('lcc'),
+                tem:             unicos('tem'),
                 link_aprobacion: link,
                 correo_copia:    CFG.CORREO_CIRCULARES || '',
             };
@@ -1212,6 +1251,9 @@ const EnhebradoTab = ({ structures }) => {
             try { return JSON.parse(localStorage.getItem(SKEY)||'[]'); } catch(e){ return []; }
         };
         const save = (data) => {
+            // En modo aprobación (link de jefatura) NO se escribe localStorage:
+            // si el link se abre en el computador del elaborador, borraría sus fichas locales
+            if (window.__swantex_modo_aprobacion) return;
             try { localStorage.setItem(SKEY, JSON.stringify(data)); } catch(e){}
         };
         useEffect(()=>{
@@ -1219,18 +1261,27 @@ const EnhebradoTab = ({ structures }) => {
             var esModoAprobacion = false;
             try {
                 const params = new URLSearchParams(window.location.search);
-                const fichaIdParam = params.get('fichaId');
-                const rolParam     = params.get('rol');
-                if (fichaIdParam) {
+                const fichaIdParam  = params.get('fichaId');
+                const fichaIdsParam = params.get('fichaIds');   // varias fichas en un solo link
+                const rolParam      = params.get('rol');
+                var idsAprob = [];
+                if (fichaIdsParam) idsAprob = fichaIdsParam.split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+                else if (fichaIdParam) idsAprob = [fichaIdParam];
+                if (idsAprob.length > 0) {
                     esModoAprobacion = true;
                     window.__swantex_aprobacion_rol = rolParam || '';
+                    window.__swantex_modo_aprobacion = true;   // save() no toca el localStorage de este computador
                     setModoAprobacion(true);
-                    // No cargar localStorage — solo mostrar la ficha de Firebase
+                    // No cargar localStorage — solo mostrar las fichas de Firebase
                     setFichas([]);
-                    fbLeerFicha(fichaIdParam).then(function(data) {
-                        if (data) {
-                            setFichas([data]);
-                            setActivaId(fichaIdParam);
+                    Promise.all(idsAprob.map(function(id){ return fbLeerFicha(id); })).then(function(lista) {
+                        var encontradas = lista.filter(Boolean);
+                        if (encontradas.length > 0) {
+                            setFichas(encontradas);
+                            setActivaId(encontradas[0].id);
+                            if (encontradas.length < idsAprob.length) {
+                                alert('Se encontraron ' + encontradas.length + ' de ' + idsAprob.length + ' fichas. Las demás no están guardadas en la nube.');
+                            }
                         } else {
                             alert('No se encontró la ficha. Pide al elaborador que la guarde en la nube primero.');
                         }
@@ -1556,6 +1607,13 @@ const EnhebradoTab = ({ structures }) => {
 
                 {/* ── SIDEBAR: lista de fichas ── */}
                 <div style={{width:220,flexShrink:0}}>
+                    {modoAprobacion && fichas.length > 1 && (
+                        <div style={{padding:'10px 12px',borderRadius:9,marginBottom:10,
+                            background:'rgba(124,58,237,0.15)',border:'1px solid #7c3aed',
+                            color:'#e9d5ff',fontSize:11,fontWeight:700,lineHeight:1.4}}>
+                            📋 Tienes {fichas.length} fichas por aprobar. Haz clic en cada una y apruébala en la sección 6.
+                        </div>
+                    )}
                     <button onClick={addFicha}
                         style={{width:'100%',padding:'9px',borderRadius:9,background:'#10b981',
                             color:'#fff',border:'none',fontWeight:800,fontSize:11,cursor:'pointer',
@@ -2367,12 +2425,11 @@ const EnhebradoTab = ({ structures }) => {
                                 </button>
 
                                 {/* Botón enviar TODAS las fichas */}
-                                {fichas.length >= 2 && (
+                                {fichas.length >= 2 && !modoAprobacion && (
                                     <button
                                         disabled={enviandoTodas||enviando}
                                         onClick={async function(){
                                             var fichasCopy = fichas.slice();
-                                            // Cada ficha usa sus propios roles aprobadores
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
@@ -2380,7 +2437,10 @@ const EnhebradoTab = ({ structures }) => {
                                             var correosFallidos = [];
                                             var motivosError = [];
                                             var abortado = false;
+                                            var yaAprobadas = 0;
                                             try {
+                                                // 1) Guardar todas las fichas en la nube
+                                                var guardadas = [];
                                                 for(var i=0; i<fichasCopy.length; i++){
                                                     var fItem = fichasCopy[i];
                                                     var fId = fItem.id;
@@ -2390,29 +2450,47 @@ const EnhebradoTab = ({ structures }) => {
                                                     var syncOk = rItem.ok;
                                                     setFbSyncStatus(function(p){ return Object.assign({},p,{[syncId]:syncOk?'synced':'error'}); });
                                                     if(!rItem.ok){ errores.push(nombreFichaCorto(fItem)); continue; }
+                                                    guardadas.push(fItem);
                                                     fbEscucharFicha(fId, function(data){
                                                         setFichas(function(prev){
                                                             var n=prev.map(function(fx){return fx.id===data.id?data:fx;});
                                                             save(n); return n;
                                                         });
                                                     });
-                                                    // Usar los roles aprobadores de cada ficha individual
-                                                    var rolesEstaFicha = fItem.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
-                                                    var rolesEstaArr = Object.keys(rolesEstaFicha).filter(function(k){return rolesEstaFicha[k];});
-                                                    for(var j=0; j<rolesEstaArr.length; j++){
-                                                        try { await enviarCorreoAprobacion(fItem, rolesEstaArr[j]); correosOk++; }
-                                                        catch(e){
-                                                            console.warn('Email error',rolesEstaArr[j],e);
-                                                            var jefE = CFG.JEFATURAS_CORREO[rolesEstaArr[j]];
-                                                            correosFallidos.push(nombreFichaCorto(fItem)+' → '+(jefE?jefE.nombre:rolesEstaArr[j]));
-                                                            var motivo = errorEmailTxt(e);
-                                                            if(motivosError.indexOf(motivo)<0) motivosError.push(motivo);
-                                                            // Si el primer correo falla (no por velocidad), es un problema de EmailJS: no seguir gastando intentos
-                                                            if(correosOk===0 && !(e && e.status===429)){ abortado = true; break; }
-                                                        }
-                                                    }
-                                                    if(abortado) break;
                                                 }
+                                                // 2) Agrupar por jefatura: cada una recibe UN correo con todas sus fichas pendientes
+                                                var ordenRoles = ['BF-3817','MA-6524','PL-9043','CP-7261'];
+                                                var porRol = {};
+                                                guardadas.forEach(function(fg){
+                                                    var rolesF = fg.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
+                                                    ordenRoles.forEach(function(rk){
+                                                        if(!rolesF[rk]) return;
+                                                        // Si esa jefatura ya aprobó esta ficha, no se le vuelve a enviar
+                                                        if(((fg[APR_KEY_POR_ROL[rk]])||{}).bloqueado){ yaAprobadas++; return; }
+                                                        (porRol[rk] = porRol[rk] || []).push(fg);
+                                                    });
+                                                });
+                                                // 3) Enviar un correo por jefatura
+                                                var rolesConFichas = ordenRoles.filter(function(rk){ return porRol[rk] && porRol[rk].length; });
+                                                for(var j=0; j<rolesConFichas.length; j++){
+                                                    var rk = rolesConFichas[j];
+                                                    var jefE = CFG.JEFATURAS_CORREO[rk];
+                                                    try { await enviarCorreoGrupo(porRol[rk], rk); correosOk++; }
+                                                    catch(e){
+                                                        console.warn('Email error',rk,e);
+                                                        correosFallidos.push((jefE?jefE.nombre:rk)+' ('+porRol[rk].length+' ficha/s)');
+                                                        var motivo = errorEmailTxt(e);
+                                                        if(motivosError.indexOf(motivo)<0) motivosError.push(motivo);
+                                                        // Si el primer correo falla (no por velocidad), es un problema de EmailJS: no seguir gastando intentos
+                                                        if(correosOk===0 && !(e && e.status===429)){ abortado = true; break; }
+                                                    }
+                                                }
+                                                var detalle = rolesConFichas.map(function(rk){
+                                                    var jf = CFG.JEFATURAS_CORREO[rk];
+                                                    return (jf?jf.nombre.split(' ')[0]:rk)+': '+porRol[rk].length;
+                                                }).join(' · ');
+                                                var notaAprob = yaAprobadas===1 ? ' (1 aprobación ya estaba hecha y no se reenvió)'
+                  : yaAprobadas>1  ? ' ('+yaAprobadas+' aprobaciones ya estaban hechas y no se reenviaron)' : '';
                                                 if(errores.length>0 || correosFallidos.length>0){
                                                     var partes = [];
                                                     if(motivosError.length>0) partes.push('Motivo EmailJS: '+motivosError.join(' / '));
@@ -2420,8 +2498,10 @@ const EnhebradoTab = ({ structures }) => {
                                                     if(errores.length>0) partes.push('No se guardaron en la nube: '+errores.join(', '));
                                                     if(correosFallidos.length>0) partes.push('Fallidos: '+correosFallidos.join(' | '));
                                                     setResultadoTodas({ok:false, msg:'⚠️ '+correosOk+' correo(s) enviados. '+partes.join(' · ')});
+                                                } else if(rolesConFichas.length===0){
+                                                    setResultadoTodas({ok:true, msg:'✅ No hay nada pendiente: todas las jefaturas ya aprobaron sus fichas'+notaAprob});
                                                 } else {
-                                                    setResultadoTodas({ok:true, msg:'✅ '+correosOk+' correo(s) enviados para '+fichasCopy.length+' ficha(s)'});
+                                                    setResultadoTodas({ok:true, msg:'✅ '+correosOk+' correo(s) enviados — uno por jefatura ('+detalle+' fichas)'+notaAprob});
                                                 }
                                             } catch(err){
                                                 setResultadoTodas({ok:false, msg:'Error: '+String(err)});
@@ -3048,6 +3128,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                     });
                                                                     save(n);return n;
                                                                 });
+                                                                fbGuardarFirma(ficha.id, item.key, Object.assign({},apr,{bloqueado:false}));
                                                             } else { alert('Código incorrecto.'); }
                                                         }} style={{padding:'6px 10px',borderRadius:6,
                                                             background:'#7f1d1d',color:'#fca5a5',
@@ -3085,6 +3166,7 @@ const EnhebradoTab = ({ structures }) => {
                                                                     });
                                                                     save(n);return n;
                                                                 });
+                                                                fbGuardarFirma(ficha.id, item.key, {nombre:jef.nombre,rol:jef.rol,fecha:fecha,codigo:code,bloqueado:true});
                                                                 setCodigoError(function(prev){var n=Object.assign({},prev);n[ficha.id+item.key]='';return n;});
                                                             }
                                                         }}
@@ -3115,6 +3197,7 @@ const EnhebradoTab = ({ structures }) => {
                                                             });
                                                             save(n);return n;
                                                         });
+                                                        fbGuardarFirma(ficha.id, item.key, {nombre:jef.nombre,rol:jef.rol,fecha:fecha,codigo:code,bloqueado:true});
                                                         setCodigoError(function(prev){var n=Object.assign({},prev);n[ficha.id+item.key]='';return n;});
                                                     }} style={{width:'100%',padding:'8px',borderRadius:8,
                                                         background:item.color,color:'#fff',border:'none',
@@ -3196,7 +3279,14 @@ const EnhebradoTab = ({ structures }) => {
         const [searchQuery, setSearchQuery] = useState('');
         const [filterStatus, setFilterStatus] = useState('TODOS');
         const [expandedId, setExpandedId] = useState(null);
-        const [activeTab, setActiveTab] = useState('precosteos');
+        const [activeTab, setActiveTab] = useState(function(){
+            // Link de aprobación de jefatura → abrir directo en FT-CIR-004
+            try {
+                var q = new URLSearchParams(window.location.search);
+                if (q.get('fichaId') || q.get('fichaIds')) return 'ftcir004';
+            } catch(e) {}
+            return 'precosteos';
+        });
         const fileInputRef = useRef(null);
         const printRef = useRef(null);
 
