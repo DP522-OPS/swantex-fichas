@@ -1011,11 +1011,19 @@ const EnhebradoTab = ({ structures }) => {
             const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rolKey];
             if (!jef) return Promise.reject('Rol no encontrado');
             const link = fichaToLink(ficha, rolKey);
+            // Tallas de la ficha — para distinguir fichas duplicadas en el correo
+            var tallasTxt = '';
+            try {
+                var tc = ficha.tallasCheck || {};
+                var tl = Object.keys(tc).filter(function(t){ return tc[t]; });
+                if (ficha.tallaExtra) tl.push(ficha.tallaExtra);
+                tallasTxt = tl.join('-');
+            } catch(e) {}
             const params = {
                 to_email:        jef.correos.join(','),
                 nombre_jefatura: jef.nombre,
                 rol:             jef.rol,
-                producto:        ficha.producto || '—',
+                producto:        (ficha.producto || '—') + (tallasTxt ? ' · Talla ' + tallasTxt : ''),
                 lcc:             ficha.lcc      || '—',
                 tem:             ficha.tem      || '—',
                 link_aprobacion: link,
@@ -1026,7 +1034,25 @@ const EnhebradoTab = ({ structures }) => {
                 return Promise.resolve({ link });
             }
             window.emailjs.init(CFG.EMAILJS_KEY);
-            return window.emailjs.send(CFG.EMAILJS_SERVICE, CFG.EMAILJS_TPL, params);
+            return enviarConPausa(params);
+        };
+
+        // EmailJS acepta máx. 1 correo/segundo — esperar entre envíos y reintentar si rechaza (429)
+        var __ultimoEnvio = 0;
+        const esperar = (ms) => new Promise(function(r){ setTimeout(r, ms); });
+        const enviarConPausa = async (params) => {
+            for (var intento = 0; intento < 4; intento++) {
+                var faltan = 1300 - (Date.now() - __ultimoEnvio);
+                if (faltan > 0) await esperar(faltan);
+                __ultimoEnvio = Date.now();
+                try {
+                    return await window.emailjs.send(CFG.EMAILJS_SERVICE, CFG.EMAILJS_TPL, params);
+                } catch(e) {
+                    var st = e && e.status;
+                    if (st === 429 && intento < 3) { await esperar(2500); continue; }
+                    throw e;
+                }
+            }
         };
 
         // Send all 4 approval emails at once
@@ -2327,10 +2353,11 @@ const EnhebradoTab = ({ structures }) => {
                                         onClick={async function(){
                                             var fichasCopy = fichas.slice();
                                             // Cada ficha usa sus propios roles aprobadores
-                                            var rolesArrCopy = null; // se calcula por ficha abajo
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
+                                            var correosOk = 0;
+                                            var correosFallidos = [];
                                             try {
                                                 for(var i=0; i<fichasCopy.length; i++){
                                                     var fItem = fichasCopy[i];
@@ -2351,14 +2378,21 @@ const EnhebradoTab = ({ structures }) => {
                                                     var rolesEstaFicha = fItem.rolesAprobadores||{'BF-3817':true,'MA-6524':true,'PL-9043':true,'CP-7261':true};
                                                     var rolesEstaArr = Object.keys(rolesEstaFicha).filter(function(k){return rolesEstaFicha[k];});
                                                     for(var j=0; j<rolesEstaArr.length; j++){
-                                                        try { await enviarCorreoAprobacion(fItem, rolesEstaArr[j]); }
-                                                        catch(e){ console.warn('Email error',rolesEstaArr[j],e); }
+                                                        try { await enviarCorreoAprobacion(fItem, rolesEstaArr[j]); correosOk++; }
+                                                        catch(e){
+                                                            console.warn('Email error',rolesEstaArr[j],e);
+                                                            var jefE = CFG.JEFATURAS_CORREO[rolesEstaArr[j]];
+                                                            correosFallidos.push((fItem.producto||fId)+' → '+(jefE?jefE.nombre:rolesEstaArr[j]));
+                                                        }
                                                     }
                                                 }
-                                                if(errores.length>0){
-                                                    setResultadoTodas({ok:false, msg:'Error guardando talla(s): '+errores.join(', ')});
+                                                if(errores.length>0 || correosFallidos.length>0){
+                                                    var partes = [];
+                                                    if(errores.length>0) partes.push('No se guardaron: '+errores.join(', '));
+                                                    if(correosFallidos.length>0) partes.push('Correos fallidos: '+correosFallidos.join(' | '));
+                                                    setResultadoTodas({ok:false, msg:'⚠️ '+correosOk+' correo(s) enviados. '+partes.join(' · ')});
                                                 } else {
-                                                    setResultadoTodas({ok:true, msg:'✅ Correos enviados para '+fichasCopy.length+' ficha(s)'});
+                                                    setResultadoTodas({ok:true, msg:'✅ '+correosOk+' correo(s) enviados para '+fichasCopy.length+' ficha(s)'});
                                                 }
                                             } catch(err){
                                                 setResultadoTodas({ok:false, msg:'Error: '+String(err)});
