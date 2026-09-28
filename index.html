@@ -4504,13 +4504,15 @@ const EnhebradoTab = ({ structures }) => {
                     </div>
                 )}
 
-                {activeTab === 'ftcir004' && (
+                {/* Se mantienen SIEMPRE montados (display:none en vez de desmontar) para que
+                    no pierdan su ficha seleccionada al cambiar de pestaña y volver. */}
+                <div style={{display: activeTab === 'ftcir004' ? 'block' : 'none'}}>
                     <FT004Tab structures={structures} />
-                )}
+                </div>
 
-                {activeTab === 'enhebrado' && (
+                <div style={{display: activeTab === 'enhebrado' ? 'block' : 'none'}}>
                     <EnhebradoTab structures={structures} />
-                )}
+                </div>
             </div>
         );
     };
