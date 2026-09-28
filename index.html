@@ -465,10 +465,15 @@
         status: 'PENDIENTE',
         header: {
             referencia:'', talla:'L/XL',
-            // maquinas: en que maquina(s) puede correr esta referencia/talla. Es un
-            // arreglo porque una misma referencia a veces puede correr en mas de un
-            // modelo/diametro (ej. 15" de SM4 o de TOP2V) - se llena a mano.
-            maquinas: [{ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }],
+            // maquinas: en que maquina(s) puede correr esta referencia. Es un arreglo
+            // porque puede haber mas de una opcion valida, por dos motivos distintos
+            // (por eso cada fila tiene su propio campo "talla"):
+            //   - misma talla, maquinas alternativas (ej. LXL puede ir en 15" SM4 o
+            //     15" TOP2V): se dejan las filas con la MISMA talla, o con talla vacia
+            //     (vacia = usa la talla principal de arriba).
+            //   - tallas distintas del mismo producto (ej. LXL en 15", 2XL en 17"):
+            //     cada fila lleva su propia talla.
+            maquinas: [{ talla:'', tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }],
             tubosPorDocena:12, alimentadores:8
         },
         specs: { pesoUnitarioGramos:0, tiempoMin:0, tiempoSeg:0 },
@@ -482,10 +487,16 @@
     // antiguas que solo tenian header.tipoMaquina/maquinaModelo/diametro.
     const getMaquinas = (h) => {
         if (Array.isArray(h.maquinas) && h.maquinas.length) return h.maquinas;
-        if (h.tipoMaquina) return [{ tipoMaquina: h.tipoMaquina, maquinaModelo: h.maquinaModelo || '', diametro: h.diametro || '' }];
-        return [{ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }];
+        if (h.tipoMaquina) return [{ talla:'', tipoMaquina: h.tipoMaquina, maquinaModelo: h.maquinaModelo || '', diametro: h.diametro || '' }];
+        return [{ talla:'', tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }];
     };
-    const maquinaLabel = (m) => `${m.tipoMaquina} ${m.maquinaModelo}${m.tipoMaquina==='Santoni' ? ' ' + m.diametro + '"' : ''}`;
+    // Talla efectiva de una fila: la propia si la trae, si no la principal de la ficha.
+    const maquinaTalla = (m, h) => (m.talla && m.talla.trim()) ? m.talla.trim() : (h.talla || '');
+    const maquinaLabel = (m, h) => {
+        const base = `${m.tipoMaquina} ${m.maquinaModelo}${m.tipoMaquina==='Santoni' ? ' ' + m.diametro + '"' : ''}`;
+        const t = maquinaTalla(m, h || {});
+        return t ? `${t}: ${base}` : base;
+    };
 
     /* ══════════════════════════════════════════
        ICONOS
@@ -3389,7 +3400,7 @@ const EnhebradoTab = ({ structures }) => {
                 if (s.id !== id) return s;
                 const clone = JSON.parse(JSON.stringify(s));
                 const lista = getMaquinas(clone.header).slice();
-                lista.push({ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' });
+                lista.push({ talla:'', tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' });
                 clone.header.maquinas = lista;
                 clone.updatedAt = Date.now();
                 return clone;
@@ -3511,7 +3522,7 @@ const EnhebradoTab = ({ structures }) => {
                     const base = {
                         'PÁG': pi+1, 'PRENDA': s.nombrePrenda, 'REFERENCIA': s.header.referencia,
                         'TALLA': s.header.talla, 'ESTADO': s.status,
-                        'MÁQUINA': maquinasS.map(maquinaLabel).join(' / '),
+                        'MÁQUINA': maquinasS.map(m=>maquinaLabel(m, s.header)).join(' / '),
                         'MODELO': maquinaPrincipal.maquinaModelo,
                         'ALIMENTADORES': s.header.alimentadores||'',
                         'TUBOS/DOC': tubos,
@@ -3680,7 +3691,7 @@ const EnhebradoTab = ({ structures }) => {
                         // ════════════════════════════════
                         const params = [
                             ['Talla', s.header.talla],
-                            ['Máquina', getMaquinas(s.header).map(maquinaLabel).join(' / ')],
+                            ['Máquina', getMaquinas(s.header).map(m=>maquinaLabel(m, s.header)).join(' / ')],
                             ['Tubos/Doc', String(tubos)],
                             ['Alimentadores', String(s.header.alimentadores||'—')],
                             ['Peso Unit.', `${s.specs.pesoUnitarioGramos||0} g`],
@@ -4682,7 +4693,7 @@ const EnhebradoTab = ({ structures }) => {
                         {[
                             { label:'Referencia', val:s.header.referencia||'—' },
                             { label:'Talla', val:s.header.talla },
-                            { label:'Máquina', val: getMaquinas(s.header).map(maquinaLabel).join(' · ') },
+                            { label:'Máquina', val: getMaquinas(s.header).map(m=>maquinaLabel(m, s.header)).join(' · ') },
                             { label:'Peso Unit.', val:`${s.specs.pesoUnitarioGramos||0}g` },
                             { label:'Costo/Doc', val:`$${totalCost.toFixed(2)}`, color:'#10b981' },
                             { label:'Mezcla', val:`${totalPct}%`, color: totalPct===100?'#10b981':'#ef4444' },
@@ -4723,7 +4734,7 @@ const EnhebradoTab = ({ structures }) => {
                                 </div>
                                 <div>
                                     <label className="field-label">Máquina(s) donde puede correr</label>
-                                    <p style={{fontSize:10, color:'#4b5563', margin:'0 0 8px'}}>Si esta referencia/talla puede salir en más de un modelo o diámetro, agregue una opción por cada uno.</p>
+                                    <p style={{fontSize:10, color:'#4b5563', margin:'0 0 8px'}}>Agregue una opción por cada máquina válida. Dos motivos para tener varias: (a) la misma talla puede correr en más de un modelo/diámetro, o (b) cada opción es en realidad para una talla distinta del mismo producto — en ese caso escriba la talla en esa fila; si la deja vacía, se asume la talla de arriba ({s.header.talla || '—'}).</p>
                                     {getMaquinas(s.header).map((m, mIdx) => (
                                         <div key={mIdx} style={{
                                             background: m.tipoMaquina==='Santoni' ? '#0a1628' : '#091a0f',
@@ -4735,6 +4746,11 @@ const EnhebradoTab = ({ structures }) => {
                                                         borderRadius:6, width:20, height:20, cursor:'pointer', fontSize:12, lineHeight:1}}>×</button>
                                             )}
                                             <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                                                <div>
+                                                    <label className="field-label" style={{color:'#f59e0b'}}>Talla (opcional)</label>
+                                                    <input value={m.talla||''} placeholder={'Vacío = ' + (s.header.talla || 'talla de arriba')}
+                                                        onChange={e=>onMachineChange(s.id,mIdx,'talla',e.target.value)}/>
+                                                </div>
                                                 <div>
                                                     <label className="field-label">Tecnología</label>
                                                     <select value={m.tipoMaquina} onChange={e=>onMachineChange(s.id,mIdx,'tipoMaquina',e.target.value)}>
