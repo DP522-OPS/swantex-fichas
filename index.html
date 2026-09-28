@@ -465,8 +465,11 @@
         status: 'PENDIENTE',
         header: {
             referencia:'', talla:'L/XL',
-            tipoMaquina:'Santoni', maquinaModelo:'TOP2V',
-            tubosPorDocena:12, diametro:'17', alimentadores:8
+            // maquinas: en que maquina(s) puede correr esta referencia/talla. Es un
+            // arreglo porque una misma referencia a veces puede correr en mas de un
+            // modelo/diametro (ej. 15" de SM4 o de TOP2V) - se llena a mano.
+            maquinas: [{ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }],
+            tubosPorDocena:12, alimentadores:8
         },
         specs: { pesoUnitarioGramos:0, tiempoMin:0, tiempoSeg:0 },
         fibras: [newFibra()],
@@ -474,6 +477,15 @@
         createdAt: Date.now(),
         updatedAt: Date.now(),
     });
+
+    // Devuelve siempre un arreglo de opciones de maquina, migrando fichas
+    // antiguas que solo tenian header.tipoMaquina/maquinaModelo/diametro.
+    const getMaquinas = (h) => {
+        if (Array.isArray(h.maquinas) && h.maquinas.length) return h.maquinas;
+        if (h.tipoMaquina) return [{ tipoMaquina: h.tipoMaquina, maquinaModelo: h.maquinaModelo || '', diametro: h.diametro || '' }];
+        return [{ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' }];
+    };
+    const maquinaLabel = (m) => `${m.tipoMaquina} ${m.maquinaModelo}${m.tipoMaquina==='Santoni' ? ' ' + m.diametro + '"' : ''}`;
 
     /* ══════════════════════════════════════════
        ICONOS
@@ -3352,12 +3364,47 @@ const EnhebradoTab = ({ structures }) => {
             persist(newData);
         };
 
-        const handleMachineChange = (id, val) => {
+        // idx = indice de la opcion de maquina dentro de header.maquinas. field = 'tipoMaquina'|'maquinaModelo'|'diametro'.
+        const handleMachineChange = (id, idx, field, val) => {
             const newData = structures.map(s => {
                 if (s.id !== id) return s;
                 const clone = JSON.parse(JSON.stringify(s));
-                clone.header.tipoMaquina = val;
-                clone.header.maquinaModelo = val === 'Santoni' ? 'TOP2V' : '02MJ';
+                const lista = getMaquinas(clone.header).slice();
+                const item = Object.assign({}, lista[idx]);
+                item[field] = val;
+                if (field === 'tipoMaquina') {
+                    item.maquinaModelo = val === 'Santoni' ? 'TOP2V' : '02MJ';
+                    item.diametro = val === 'Santoni' ? '17' : '';
+                }
+                lista[idx] = item;
+                clone.header.maquinas = lista;
+                clone.updatedAt = Date.now();
+                return clone;
+            });
+            persist(newData);
+        };
+
+        const addMaquinaOpcion = (id) => {
+            const newData = structures.map(s => {
+                if (s.id !== id) return s;
+                const clone = JSON.parse(JSON.stringify(s));
+                const lista = getMaquinas(clone.header).slice();
+                lista.push({ tipoMaquina:'Santoni', maquinaModelo:'TOP2V', diametro:'17' });
+                clone.header.maquinas = lista;
+                clone.updatedAt = Date.now();
+                return clone;
+            });
+            persist(newData);
+        };
+
+        const removeMaquinaOpcion = (id, idx) => {
+            const newData = structures.map(s => {
+                if (s.id !== id) return s;
+                const clone = JSON.parse(JSON.stringify(s));
+                const lista = getMaquinas(clone.header).slice();
+                if (lista.length <= 1) return clone; // siempre debe quedar al menos una
+                lista.splice(idx, 1);
+                clone.header.maquinas = lista;
                 clone.updatedAt = Date.now();
                 return clone;
             });
@@ -3455,6 +3502,8 @@ const EnhebradoTab = ({ structures }) => {
             structures.forEach((s, pi) => {
                 const tubos = parseInt(s.header.tubosPorDocena)||12;
                 const dW = (parseFloat(s.specs.pesoUnitarioGramos)||0)*tubos;
+                const maquinasS = getMaquinas(s.header);
+                const maquinaPrincipal = maquinasS[0];
                 s.fibras.forEach(f => {
                     const gr = dW*(f.porcentaje/100);
                     const cost = (gr/1000)*(parseFloat(f.costoKg)||0);
@@ -3462,10 +3511,11 @@ const EnhebradoTab = ({ structures }) => {
                     const base = {
                         'PÁG': pi+1, 'PRENDA': s.nombrePrenda, 'REFERENCIA': s.header.referencia,
                         'TALLA': s.header.talla, 'ESTADO': s.status,
-                        'MÁQUINA': s.header.tipoMaquina, 'MODELO': s.header.maquinaModelo,
+                        'MÁQUINA': maquinasS.map(maquinaLabel).join(' / '),
+                        'MODELO': maquinaPrincipal.maquinaModelo,
                         'ALIMENTADORES': s.header.alimentadores||'',
                         'TUBOS/DOC': tubos,
-                        ...(s.header.tipoMaquina==='Santoni' ? {'DIÁMETRO':s.header.diametro+'"'} : {}),
+                        ...(maquinaPrincipal.tipoMaquina==='Santoni' ? {'DIÁMETRO':maquinaPrincipal.diametro+'"'} : {}),
                         'FIBRA': f.nombre, 'TÍTULO': f.titulo,
                         'LOTE': f.lote, 'PROVEEDOR': f.proveedor,
                         '% PART.': f.porcentaje,
@@ -3630,10 +3680,9 @@ const EnhebradoTab = ({ structures }) => {
                         // ════════════════════════════════
                         const params = [
                             ['Talla', s.header.talla],
-                            ['Máquina', `${s.header.tipoMaquina} ${s.header.maquinaModelo}`],
+                            ['Máquina', getMaquinas(s.header).map(maquinaLabel).join(' / ')],
                             ['Tubos/Doc', String(tubos)],
                             ['Alimentadores', String(s.header.alimentadores||'—')],
-                            ...(s.header.tipoMaquina==='Santoni'?[['Diámetro',s.header.diametro+'"']]:[]),
                             ['Peso Unit.', `${s.specs.pesoUnitarioGramos||0} g`],
                             ['Peso x Doc.', `${dW.toFixed(1)} g`],
                             ['Ciclo', cycleS>0?`${s.specs.tiempoMin}min ${s.specs.tiempoSeg}s`:'—'],
@@ -4494,6 +4543,7 @@ const EnhebradoTab = ({ structures }) => {
                                     isExpanded={expandedId===s.id || visibleStructures.length===1}
                                     onToggle={()=>setExpandedId(prev=>prev===s.id?null:s.id)}
                                     onUpdate={updateField} onMachineChange={handleMachineChange}
+                                    onAddMaquina={addMaquinaOpcion} onRemoveMaquina={removeMaquinaOpcion}
                                     onFibraUpdate={updateFibra} onFibraRemove={removeFibra}
                                     onDelete={deleteStructure}
                                     onDuplicate={duplicateStructure}
@@ -4520,7 +4570,7 @@ const EnhebradoTab = ({ structures }) => {
     /* ══════════════════════════════════════════
        COMPONENTE FICHA CARD
     ══════════════════════════════════════════ */
-    const FichaCard = ({ s, idx, realIdx, isExpanded, onToggle, onUpdate, onMachineChange, onFibraUpdate, onFibraRemove, onDelete, onDuplicate }) => {
+    const FichaCard = ({ s, idx, realIdx, isExpanded, onToggle, onUpdate, onMachineChange, onAddMaquina, onRemoveMaquina, onFibraUpdate, onFibraRemove, onDelete, onDuplicate }) => {
         const tubos = parseInt(s.header.tubosPorDocena)||12;
         const dW = (parseFloat(s.specs.pesoUnitarioGramos)||0) * tubos;
         const totalPct = s.fibras.reduce((a,f)=>a+(f.porcentaje||0), 0);
@@ -4632,7 +4682,7 @@ const EnhebradoTab = ({ structures }) => {
                         {[
                             { label:'Referencia', val:s.header.referencia||'—' },
                             { label:'Talla', val:s.header.talla },
-                            { label:'Máquina', val:`${s.header.tipoMaquina} ${s.header.maquinaModelo}` },
+                            { label:'Máquina', val: getMaquinas(s.header).map(maquinaLabel).join(' · ') },
                             { label:'Peso Unit.', val:`${s.specs.pesoUnitarioGramos||0}g` },
                             { label:'Costo/Doc', val:`$${totalCost.toFixed(2)}`, color:'#10b981' },
                             { label:'Mezcla', val:`${totalPct}%`, color: totalPct===100?'#10b981':'#ef4444' },
@@ -4672,36 +4722,58 @@ const EnhebradoTab = ({ structures }) => {
                                     </div>
                                 </div>
                                 <div>
-                                    <label className="field-label">Tecnología de máquina</label>
-                                    <select value={s.header.tipoMaquina} onChange={e=>onMachineChange(s.id,e.target.value)}>
-                                        <option value="Santoni">Santoni</option>
-                                        <option value="Lonati">Lonati</option>
-                                    </select>
+                                    <label className="field-label">Máquina(s) donde puede correr</label>
+                                    <p style={{fontSize:10, color:'#4b5563', margin:'0 0 8px'}}>Si esta referencia/talla puede salir en más de un modelo o diámetro, agregue una opción por cada uno.</p>
+                                    {getMaquinas(s.header).map((m, mIdx) => (
+                                        <div key={mIdx} style={{
+                                            background: m.tipoMaquina==='Santoni' ? '#0a1628' : '#091a0f',
+                                            border: '1px solid ' + (m.tipoMaquina==='Santoni' ? '#1e3a5f' : '#1a3a22'),
+                                            borderRadius:12, padding:12, marginBottom:10, position:'relative'}}>
+                                            {getMaquinas(s.header).length > 1 && (
+                                                <button onClick={()=>onRemoveMaquina(s.id, mIdx)} title="Quitar esta opción"
+                                                    style={{position:'absolute', top:8, right:8, background:'#ef4444', color:'#fff', border:'none',
+                                                        borderRadius:6, width:20, height:20, cursor:'pointer', fontSize:12, lineHeight:1}}>×</button>
+                                            )}
+                                            <div style={{display:'flex', flexDirection:'column', gap:10}}>
+                                                <div>
+                                                    <label className="field-label">Tecnología</label>
+                                                    <select value={m.tipoMaquina} onChange={e=>onMachineChange(s.id,mIdx,'tipoMaquina',e.target.value)}>
+                                                        <option value="Santoni">Santoni</option>
+                                                        <option value="Lonati">Lonati</option>
+                                                    </select>
+                                                </div>
+                                                {m.tipoMaquina === 'Santoni' ? (
+                                                    <React.Fragment>
+                                                        <div>
+                                                            <label className="field-label" style={{color:'#3b82f6'}}>Modelo Santoni</label>
+                                                            <select value={m.maquinaModelo} onChange={e=>onMachineChange(s.id,mIdx,'maquinaModelo',e.target.value)}>
+                                                                {['TOP2V','TOP2HIE','SM4','TOP1'].map(mo=><option key={mo} value={mo}>{mo}</option>)}
+                                                            </select>
+                                                        </div>
+                                                        <div>
+                                                            <label className="field-label" style={{color:'#3b82f6'}}>Diámetro</label>
+                                                            <select value={m.diametro} onChange={e=>onMachineChange(s.id,mIdx,'diametro',e.target.value)}>
+                                                                {[13,14,15,16,17,18,20,22].map(d=><option key={d} value={d}>{d}" pulgadas</option>)}
+                                                            </select>
+                                                        </div>
+                                                    </React.Fragment>
+                                                ) : (
+                                                    <div>
+                                                        <label className="field-label" style={{color:'#10b981'}}>Modelo Lonati</label>
+                                                        <select value={m.maquinaModelo} onChange={e=>onMachineChange(s.id,mIdx,'maquinaModelo',e.target.value)}>
+                                                            {['02MJ','04JS','409','416E','B04','B16','GL615','POR DEF'].map(mo=><option key={mo} value={mo}>{mo}</option>)}
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <button onClick={()=>onAddMaquina(s.id)}
+                                        style={{background:'#1f2937', color:'#9ca3af', border:'1px dashed #374151', borderRadius:8,
+                                            padding:'6px 10px', fontSize:11, fontWeight:700, cursor:'pointer', width:'100%'}}>
+                                        + Añadir otra opción de máquina
+                                    </button>
                                 </div>
-                                {s.header.tipoMaquina === 'Santoni' && (
-                                    <div style={{background:'#0a1628', border:'1px solid #1e3a5f', borderRadius:12, padding:12, display:'flex', flexDirection:'column', gap:10}}>
-                                        <div>
-                                            <label className="field-label" style={{color:'#3b82f6'}}>Modelo Santoni</label>
-                                            <select value={s.header.maquinaModelo} onChange={e=>onUpdate(s.id,'header.maquinaModelo',e.target.value)}>
-                                                {['TOP2V','TOP2HIE','SM4','TOP1'].map(m=><option key={m} value={m}>{m}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="field-label" style={{color:'#3b82f6'}}>Diámetro</label>
-                                            <select value={s.header.diametro} onChange={e=>onUpdate(s.id,'header.diametro',e.target.value)}>
-                                                {[13,14,15,16,17,18,20,22].map(d=><option key={d} value={d}>{d}" pulgadas</option>)}
-                                            </select>
-                                        </div>
-                                    </div>
-                                )}
-                                {s.header.tipoMaquina === 'Lonati' && (
-                                    <div style={{background:'#091a0f', border:'1px solid #1a3a22', borderRadius:12, padding:12}}>
-                                        <label className="field-label" style={{color:'#10b981'}}>Modelo Lonati</label>
-                                        <select value={s.header.maquinaModelo} onChange={e=>onUpdate(s.id,'header.maquinaModelo',e.target.value)}>
-                                            {['02MJ','04JS','409','416E','B04','B16','GL615','POR DEF'].map(m=><option key={m} value={m}>{m}</option>)}
-                                        </select>
-                                    </div>
-                                )}
                                 <div>
                                     <label className="field-label">Alimentadores activos</label>
                                     <input type="number" value={s.header.alimentadores||''} placeholder="Ej. 8"
