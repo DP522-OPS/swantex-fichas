@@ -3357,7 +3357,7 @@ const EnhebradoTab = ({ structures }) => {
                 if (s.id !== id) return s;
                 const clone = JSON.parse(JSON.stringify(s));
                 clone.header.tipoMaquina = val;
-                clone.header.maquinaModelo = val === 'Santoni' ? 'TOP2V' : 'LAO2MJ';
+                clone.header.maquinaModelo = val === 'Santoni' ? 'TOP2V' : '02MJ';
                 clone.updatedAt = Date.now();
                 return clone;
             });
@@ -4683,7 +4683,7 @@ const EnhebradoTab = ({ structures }) => {
                                         <div>
                                             <label className="field-label" style={{color:'#3b82f6'}}>Modelo Santoni</label>
                                             <select value={s.header.maquinaModelo} onChange={e=>onUpdate(s.id,'header.maquinaModelo',e.target.value)}>
-                                                {['TOP2V','SM4','TOP1'].map(m=><option key={m} value={m}>{m}</option>)}
+                                                {['TOP2V','TOP2HIE','SM4','TOP1'].map(m=><option key={m} value={m}>{m}</option>)}
                                             </select>
                                         </div>
                                         <div>
@@ -4698,7 +4698,7 @@ const EnhebradoTab = ({ structures }) => {
                                     <div style={{background:'#091a0f', border:'1px solid #1a3a22', borderRadius:12, padding:12}}>
                                         <label className="field-label" style={{color:'#10b981'}}>Modelo Lonati</label>
                                         <select value={s.header.maquinaModelo} onChange={e=>onUpdate(s.id,'header.maquinaModelo',e.target.value)}>
-                                            {['LAO2MJ','LA04JS','B16','GL615','416E'].map(m=><option key={m} value={m}>{m}</option>)}
+                                            {['02MJ','04JS','409','416E','B04','B16','GL615','POR DEF'].map(m=><option key={m} value={m}>{m}</option>)}
                                         </select>
                                     </div>
                                 )}
