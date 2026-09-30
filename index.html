@@ -2671,8 +2671,11 @@ const EnhebradoTab = ({ structures }) => {
 
                             {/* Link combinado — abre en un solo enlace todas las fichas de este mismo producto */}
                             {(() => {
-                                const fichasRelacionadas = ficha.producto
-                                    ? fichas.filter(function(f){ return f.producto && f.producto===ficha.producto; })
+                                const norm = (s) => (s||'').toString().trim().toLowerCase().replace(/\s+/g,' ');
+                                const claveFicha = (f) => norm(f.tem) || norm(f.programas) || norm(f.producto);
+                                const clave = claveFicha(ficha);
+                                const fichasRelacionadas = clave
+                                    ? fichas.filter(function(f){ return claveFicha(f)===clave; })
                                     : [];
                                 if (fichasRelacionadas.length < 2) return null;
                                 return (
@@ -3467,6 +3470,73 @@ const EnhebradoTab = ({ structures }) => {
             setStructures(data);
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
         }, []);
+
+        /* ── Sincronización a la nube (Firestore: colección "precosteos") ──
+           SWAN2 (catálogo de referencias, Planeación, Materia Prima) lee esta
+           colección para saber máquina/diámetro/tiempos/composición de cada
+           referencia. Antes, Precosteo sólo se guardaba en localStorage del
+           computador donde se llenaba la ficha y nunca llegaba a SWAN2. ── */
+        const [cloudSyncStatus, setCloudSyncStatus] = useState('');
+        const prevStructuresRef = useRef(structures);
+        const cloudInitDoneRef  = useRef(false);
+        const cloudSaveTimerRef = useRef(null);
+
+        // Sincronización inicial: sube TODO lo que ya existe en este computador
+        // la primera vez que Firebase queda listo (una sola vez).
+        useEffect(() => {
+            if (cloudInitDoneRef.current) return;
+            if (!structures || structures.length === 0) return;
+            let cancelado = false;
+            const intentar = (restantes) => {
+                if (cancelado) return;
+                const fb = window.SWANTEX_FIREBASE;
+                if (fb && fb.db) {
+                    cloudInitDoneRef.current = true;
+                    setCloudSyncStatus('syncing');
+                    Promise.all(structures.map((s) =>
+                        fb.db.collection('precosteos').doc(s.id).set(s)
+                            .catch((e) => console.warn('Error sincronizando precosteo inicial', s.id, e))
+                    )).then(() => setCloudSyncStatus('synced'));
+                } else if (restantes > 0) {
+                    setTimeout(() => intentar(restantes - 1), 300);
+                }
+            };
+            intentar(30);
+            return () => { cancelado = true; };
+        }, [structures]);
+
+        // Sincronización continua: cada vez que cambia una estructura (crear,
+        // editar, borrar), se refleja en la nube unos segundos después.
+        useEffect(() => {
+            const prev = prevStructuresRef.current;
+            prevStructuresRef.current = structures;
+            if (!cloudInitDoneRef.current) return; // aún no hizo la subida inicial
+            const fb = window.SWANTEX_FIREBASE;
+            if (!fb || !fb.db) return;
+            if (cloudSaveTimerRef.current) clearTimeout(cloudSaveTimerRef.current);
+            cloudSaveTimerRef.current = setTimeout(() => {
+                let huboCambios = false;
+                structures.forEach((s) => {
+                    const antes = prev.find((p) => p.id === s.id);
+                    if (antes && JSON.stringify(antes) === JSON.stringify(s)) return;
+                    huboCambios = true;
+                    fb.db.collection('precosteos').doc(s.id).set(s)
+                        .catch((e) => console.warn('Error guardando precosteo en la nube', s.id, e));
+                });
+                const idsActuales = {};
+                structures.forEach((s) => { idsActuales[s.id] = true; });
+                prev.forEach((p) => {
+                    if (!idsActuales[p.id]) {
+                        huboCambios = true;
+                        fb.db.collection('precosteos').doc(p.id).delete().catch(() => {});
+                    }
+                });
+                if (huboCambios) {
+                    setCloudSyncStatus('synced');
+                    setTimeout(() => setCloudSyncStatus(''), 2500);
+                }
+            }, 1200);
+        }, [structures]);
 
         /* ── Resumen global ── */
         const globalSummary = useMemo(() => {
@@ -4579,8 +4649,10 @@ const EnhebradoTab = ({ structures }) => {
                             </h1>
                             <span style={{fontSize:10, fontWeight:800, color:'#4b5563', textTransform:'uppercase', letterSpacing:'0.1em'}}>SAS</span>
                         </div>
-                        <p style={{margin:'2px 0 0', fontSize:10, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.12em'}}>
+                        <p style={{margin:'2px 0 0', fontSize:10, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.12em', display:'flex', alignItems:'center', gap:8}}>
                             Sistema de Ingeniería Textil · v7
+                            {cloudSyncStatus==='syncing' && <span style={{color:'#93c5fd', textTransform:'none', letterSpacing:0}}>· ⏳ sincronizando con SWAN2...</span>}
+                            {cloudSyncStatus==='synced'  && <span style={{color:'#34d399', textTransform:'none', letterSpacing:0}}>· ☁ sincronizado con SWAN2</span>}
                         </p>
                     </div>
                     <div style={{display:'flex', flexWrap:'wrap', gap:8}}>
