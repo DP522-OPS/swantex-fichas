@@ -1298,6 +1298,7 @@ const EnhebradoTab = ({ structures }) => {
         const [resultado,      setResultado]      = useState(null);
         const [enviandoTodas,  setEnviandoTodas]  = useState(false);
         const [resultadoTodas, setResultadoTodas] = useState(null);
+        const [copiandoCombo,  setCopiandoCombo]  = useState({});   // {rolKey: 'copiando'|'copiado'|'error'}
 
         /* ── Persistencia ── */
         const load = () => {
@@ -2667,6 +2668,74 @@ const EnhebradoTab = ({ structures }) => {
                                     );
                                 })}
                             </div>
+
+                            {/* Link combinado — abre en un solo enlace todas las fichas de este mismo producto */}
+                            {(() => {
+                                const fichasRelacionadas = ficha.producto
+                                    ? fichas.filter(function(f){ return f.producto && f.producto===ficha.producto; })
+                                    : [];
+                                if (fichasRelacionadas.length < 2) return null;
+                                return (
+                                    <div style={{background:'#0d1520',border:'1px solid #4c1d9544',borderRadius:8,padding:'10px 12px',marginBottom:resultado?12:0}}>
+                                        <p style={{margin:'0 0 6px',fontSize:9.5,fontWeight:800,color:'#c4b5fd',textTransform:'uppercase'}}>
+                                            🔗 Enlace combinado — {fichasRelacionadas.length} tallas de "{ficha.producto}" ({fichasRelacionadas.map(function(f){return tallasDeFicha(f)||'—';}).join(', ')})
+                                        </p>
+                                        <p style={{margin:'0 0 8px',fontSize:9,color:'#6b7280'}}>
+                                            Un solo enlace por jefatura: al abrirlo verán las {fichasRelacionadas.length} fichas juntas para aprobar. Útil cuando se te acaban los correos automáticos del mes.
+                                        </p>
+                                        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8}}>
+                                            {[
+                                                {key:'BF-3817',label:'Armado y Calidad',col:'#3b82f6'},
+                                                {key:'MA-6524',label:'Corsetería',      col:'#10b981'},
+                                                {key:'PL-9043',label:'Calidad',         col:'#f59e0b'},
+                                                {key:'CP-7261',label:'Diseño',          col:'#ec4899'},
+                                            ].filter(function(item){return rolesSelec[item.key];}).map(function(item){
+                                                const link = fichasToLink(fichasRelacionadas, item.key);
+                                                const estado = copiandoCombo[item.key];
+                                                return (
+                                                    <div key={item.key} style={{background:'#111827',border:'1px solid '+item.col+'44',borderRadius:8,padding:'8px 12px'}}>
+                                                        <div style={{fontSize:10,fontWeight:800,color:item.col,marginBottom:4}}>{item.label}</div>
+                                                        <div style={{display:'flex',gap:5}}>
+                                                            <input readOnly value={link}
+                                                                style={{flex:1,fontSize:8,padding:'3px 6px',background:'#0a0e1a',
+                                                                    border:'1px solid #1f2937',borderRadius:4,color:'#6b7280',
+                                                                    fontFamily:'monospace',overflow:'hidden',textOverflow:'ellipsis'}}/>
+                                                            <button onClick={async function(){
+                                                                    setCopiandoCombo(function(p){return Object.assign({},p,{[item.key]:'copiando'});});
+                                                                    try {
+                                                                        // Asegura que todas las fichas relacionadas estén guardadas en la nube
+                                                                        for (let i=0; i<fichasRelacionadas.length; i++){
+                                                                            const fr = fichasRelacionadas[i];
+                                                                            const rr = await fbGuardarFicha(fr);
+                                                                            if (rr.ok) {
+                                                                                fbEscucharFicha(fr.id, function(data){
+                                                                                    setFichas(function(prev){
+                                                                                        const n=prev.map(function(fx){return fx.id===data.id?data:fx;});
+                                                                                        save(n); return n;
+                                                                                    });
+                                                                                });
+                                                                            }
+                                                                        }
+                                                                        await navigator.clipboard.writeText(link);
+                                                                        setCopiandoCombo(function(p){return Object.assign({},p,{[item.key]:'copiado'});});
+                                                                        setTimeout(function(){ setCopiandoCombo(function(p){return Object.assign({},p,{[item.key]:null});}); }, 2500);
+                                                                    } catch(e) {
+                                                                        setCopiandoCombo(function(p){return Object.assign({},p,{[item.key]:'error'});});
+                                                                    }
+                                                                }}
+                                                                style={{padding:'3px 8px',borderRadius:4,
+                                                                    background:estado==='copiado'?'#10b981':estado==='error'?'#dc2626':item.col,
+                                                                    color:'#fff',border:'none',fontWeight:800,fontSize:9,cursor:'pointer',minWidth:64}}>
+                                                                {estado==='copiando'?'⏳...':estado==='copiado'?'✓ Copiado':estado==='error'?'✗ Error':'Copiar'}
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                );
+                            })()}
 
                             {/* Resultado envío ficha individual */}
                             {resultado && Array.isArray(resultado) && (
