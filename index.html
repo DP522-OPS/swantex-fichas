@@ -3471,7 +3471,11 @@ const EnhebradoTab = ({ structures }) => {
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
         }, []);
 
-        /* ── Sincronización a la nube (Firestore: colección "precosteos") ──
+        /* ── Sincronización a la nube (Firestore: colección "fichas", la
+           misma que usan las fichas FT-CIR-004 — comparten colección porque
+           los permisos de Firestore ya están abiertos ahí; se distinguen
+           por el prefijo del id: "SW-" Precosteo vs "FT004-" FT-CIR-004, y
+           SWAN2 ya descarta los documentos que no tengan forma de Precosteo).
            SWAN2 (catálogo de referencias, Planeación, Materia Prima) lee esta
            colección para saber máquina/diámetro/tiempos/composición de cada
            referencia. Antes, Precosteo sólo se guardaba en localStorage del
@@ -3494,7 +3498,7 @@ const EnhebradoTab = ({ structures }) => {
                     cloudInitDoneRef.current = true;
                     setCloudSyncStatus('syncing');
                     Promise.all(structures.map((s) =>
-                        fb.db.collection('precosteos').doc(s.id).set(s)
+                        fb.db.collection('fichas').doc(s.id).set(s)
                             .catch((e) => console.warn('Error sincronizando precosteo inicial', s.id, e))
                     )).then(() => setCloudSyncStatus('synced'));
                 } else if (restantes > 0) {
@@ -3520,7 +3524,7 @@ const EnhebradoTab = ({ structures }) => {
                     const antes = prev.find((p) => p.id === s.id);
                     if (antes && JSON.stringify(antes) === JSON.stringify(s)) return;
                     huboCambios = true;
-                    fb.db.collection('precosteos').doc(s.id).set(s)
+                    fb.db.collection('fichas').doc(s.id).set(s)
                         .catch((e) => console.warn('Error guardando precosteo en la nube', s.id, e));
                 });
                 const idsActuales = {};
@@ -3528,7 +3532,7 @@ const EnhebradoTab = ({ structures }) => {
                 prev.forEach((p) => {
                     if (!idsActuales[p.id]) {
                         huboCambios = true;
-                        fb.db.collection('precosteos').doc(p.id).delete().catch(() => {});
+                        fb.db.collection('fichas').doc(p.id).delete().catch(() => {});
                     }
                 });
                 if (huboCambios) {
