@@ -1503,6 +1503,7 @@ const EnhebradoTab = ({ structures }) => {
                 lote:      f.lote||'',
                 proveedor: f.proveedor||'',
                 tejido:    '', obs:'',
+                fromPrecosteo: true,
             }));
             // Detect complementos (siblings with same name)
             const siblings = structures.filter(s=>s.nombrePrenda===ref.nombrePrenda && s.id!==refId);
@@ -1643,6 +1644,37 @@ const EnhebradoTab = ({ structures }) => {
         };
 
         const ficha = fichas.find(f=>f.id===activaId)||null;
+
+        /* ── Auto-sync Estructura de Hilos con F-CIR-002 (nunca queda desactualizada) ── */
+        useEffect(() => {
+            if (!ficha || !ficha.fichaRefId) return;
+            const ref = structures.find(s => s.id === ficha.fichaRefId);
+            if (!ref) return;
+            const fibs = (ref.fibras || []).filter(f => f.titulo);
+            const liveRows = fibs.map(f => ({
+                parte:      'CUERPO',
+                hilo:       f.titulo || f.nombre,
+                torsion:    f.itemZ ? 'S-Z' : (f.itemS ? 'S' : '-'),
+                lote:       f.lote || '',
+                proveedor:  f.proveedor || '',
+                tejido:     '',
+                obs:        '',
+                fromPrecosteo: true,
+            }));
+            const prevAuto   = (ficha.estructura || []).filter(r => r.fromPrecosteo !== false);
+            const manualRows = (ficha.estructura || []).filter(r => r.fromPrecosteo === false);
+            const keyOf = (arr) => arr.map(r => [r.hilo,r.torsion,r.lote,r.proveedor].join('§')).join('|');
+            if (keyOf(liveRows) === keyOf(prevAuto)) return; // ya está al día, no toca nada
+            const merged = liveRows.map(lr => {
+                const match = prevAuto.find(pr => pr.hilo === lr.hilo);
+                return match ? Object.assign({}, lr, {
+                    parte:  match.parte  || lr.parte,
+                    tejido: match.tejido || '',
+                    obs:    match.obs    || '',
+                }) : lr;
+            });
+            upd(ficha.id, 'estructura', merged.concat(manualRows));
+        }, [ficha && ficha.id, ficha && ficha.fichaRefId, structures]);
         const tallasActivas = ficha
             ? TALLAS_DEF.filter(t=>ficha.tallasCheck[t])
               .concat(ficha.tallaExtra ? [ficha.tallaExtra] : [])
@@ -1981,24 +2013,15 @@ const EnhebradoTab = ({ structures }) => {
                             <div style={S.secHdr}>
                                 <span>1. ESTRUCTURA DE HILOS</span>
                                 <div style={{display:'flex',gap:6}}>
-                                    {ficha.fichaRefId && (
-                                        <button onClick={()=>{
-                                                if(!window.confirm('Esto reemplaza la tabla de abajo con la composición ACTUAL de la ficha de Precosteo vinculada. Se pierde cualquier ajuste manual que hayas hecho aquí (tejido, observaciones, filas agregadas a mano). ¿Continuar?')) return;
-                                                vincular(ficha.id, ficha.fichaRefId);
-                                            }}
-                                            title="Vuelve a copiar la composición desde F-CIR-002, por si la editaste allá después de vincular"
-                                            style={{padding:'3px 10px',borderRadius:6,background:'#1d4ed8',color:'#fff',
-                                                border:'none',fontWeight:800,fontSize:10,cursor:'pointer'}}>↻ Actualizar desde Precosteo</button>
-                                    )}
                                     <button onClick={()=>upd(ficha.id,'estructura',
-                                        (ficha.estructura||[]).concat([{parte:'CUERPO',hilo:'',torsion:'S-Z',lote:'',proveedor:'',tejido:'',obs:''}]))}
+                                        (ficha.estructura||[]).concat([{parte:'CUERPO',hilo:'',torsion:'S-Z',lote:'',proveedor:'',tejido:'',obs:'',fromPrecosteo:false}]))}
                                         style={{padding:'3px 10px',borderRadius:6,background:'#10b981',color:'#fff',
                                             border:'none',fontWeight:800,fontSize:10,cursor:'pointer'}}>+ Fila</button>
                                 </div>
                             </div>
                             {ficha.fichaRefId && (
-                                <p style={{margin:'0',padding:'6px 16px',fontSize:9.5,color:'#6b7280',background:'#0d1520',borderBottom:'1px solid #1f2937'}}>
-                                    Esta tabla se copió de Precosteo al vincular la ficha. Si después cambiaste la composición allá, usa "↻ Actualizar desde Precosteo" para que quede igual — no se actualiza sola.
+                                <p style={{margin:'0',padding:'6px 16px',fontSize:9.5,color:'#34d399',background:'#0d1520',borderBottom:'1px solid #1f2937',fontWeight:700}}>
+                                    ✓ Composición sincronizada automáticamente con Precosteo (F-CIR-002). Si cambian los hilos allá, esta tabla se actualiza sola. "Tejido" y "Observaciones" de cada hilo, y cualquier fila agregada con "+ Fila", se conservan.
                                 </p>
                             )}
                             <div style={{overflowX:'auto'}}>
