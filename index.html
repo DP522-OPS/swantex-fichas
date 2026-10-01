@@ -4116,6 +4116,20 @@ const EnhebradoTab = ({ structures }) => {
                     const st  = h=>{ const[r,g,b]=h2r(h); doc.setTextColor(r,g,b); };
                     const B   = (sz,col)=>{ doc.setFont('helvetica','bold');   doc.setFontSize(sz); st(col||'#f1f5f9'); };
                     const N   = (sz,col)=>{ doc.setFont('helvetica','normal'); doc.setFontSize(sz); st(col||'#e2e8f0'); };
+                    /* Centra texto vertical Y horizontalmente dentro de una celda, usando
+                       baseline:'middle' de jsPDF en vez de calcular el offset a mano -
+                       asi queda centrado sin importar el tamano de fuente o el contenido. */
+                    const centerText = (txt,cx,cy)=>{ doc.text(txt, cx, cy, {align:'center', baseline:'middle'}); };
+                    /* Insignia de torsion (S/Z) en la esquina de una celda del enhebrado -
+                       mismos colores que la app: S=azul, Z=gris oscuro, sin torsion=nada */
+                    const torsionCol = t=> t==='S' ? '#1d4ed8' : t==='Z' ? '#374151' : null;
+                    const drawTorsionBadge = (x,y,sz,torsion)=>{
+                        const col = torsionCol(torsion);
+                        if(!col) return;
+                        const[r,g,b]=h2r(col);
+                        doc.setFillColor(r,g,b); doc.roundedRect(x,y,sz,sz,0.6,0.6,'F');
+                        B(sz*0.62,'#ffffff'); centerText(torsion, x+sz/2, y+sz/2+0.1);
+                    };
 
                     /* page width/height aware helpers */
                     let isLandscape = false;
@@ -4343,19 +4357,20 @@ const EnhebradoTab = ({ structures }) => {
                                             B(7,'#0a0e1a');
                                             const t=hilo.titulo; const max=Math.floor(ghW/2.1);
                                             if(t.length<=max){
-                                                doc.text(t, gx+ghW/2, y+rowH/2+1.5, {align:'center'});
+                                                centerText(t, gx+ghW/2, y+rowH/2);
                                             } else {
                                                 const sp=t.indexOf(' ',Math.floor(t.length/2)-2);
                                                 const l1=sp>0?t.slice(0,sp):t.slice(0,max);
                                                 const l2=sp>0?t.slice(sp+1):t.slice(max);
                                                 doc.setFontSize(6);
-                                                doc.text(l1, gx+ghW/2, y+rowH/2-0.5, {align:'center'});
-                                                doc.text(l2.slice(0,max), gx+ghW/2, y+rowH/2+4, {align:'center'});
+                                                centerText(l1, gx+ghW/2, y+rowH/2-1.6);
+                                                centerText(l2.slice(0,max), gx+ghW/2, y+rowH/2+1.8);
                                             }
+                                            drawTorsionBadge(gx+ghW-4.2, y+1.2, 3.2, hilo.torsion);
                                         } else {
                                             sf(ai%2===0?'#110300':'#180500'); doc.rect(gx,y,ghW,rowH,'F');
                                             sd('#2a0800'); doc.setLineWidth(0.1); doc.rect(gx,y,ghW,rowH,'D');
-                                            N(8,'#2a1200'); doc.text('—', gx+ghW/2, y+rowH/2+1.5, {align:'center'});
+                                            N(8,'#2a1200'); centerText('—', gx+ghW/2, y+rowH/2);
                                         }
                                     });
                                     y+=rowH;
@@ -4418,19 +4433,20 @@ const EnhebradoTab = ({ structures }) => {
                                             B(8,'#0a0e1a');
                                             const t=hilo.titulo; const max=Math.floor(ghW2/2.2);
                                             if(t.length<=max){
-                                                doc.text(t, gx+ghW2/2, ly+rowH2/2+1.8, {align:'center'});
+                                                centerText(t, gx+ghW2/2, ly+rowH2/2);
                                             } else {
                                                 const sp=t.indexOf(' ',Math.floor(t.length/2)-2);
                                                 const l1=sp>0?t.slice(0,sp):t.slice(0,max);
                                                 const l2=sp>0?t.slice(sp+1):t.slice(max);
                                                 doc.setFontSize(7);
-                                                doc.text(l1, gx+ghW2/2, ly+rowH2/2-0.5, {align:'center'});
-                                                doc.text(l2.slice(0,max), gx+ghW2/2, ly+rowH2/2+4.5, {align:'center'});
+                                                centerText(l1, gx+ghW2/2, ly+rowH2/2-1.9);
+                                                centerText(l2.slice(0,max), gx+ghW2/2, ly+rowH2/2+2.1);
                                             }
+                                            drawTorsionBadge(gx+ghW2-5, ly+1.5, 3.8, hilo.torsion);
                                         } else {
                                             sf(ai%2===0?'#110300':'#180500'); doc.rect(gx,ly,ghW2,rowH2,'F');
                                             sd('#2a0800'); doc.setLineWidth(0.1); doc.rect(gx,ly,ghW2,rowH2,'D');
-                                            N(8,'#2a1200'); doc.text('—', gx+ghW2/2, ly+rowH2/2+1.8, {align:'center'});
+                                            N(8,'#2a1200'); centerText('—', gx+ghW2/2, ly+rowH2/2);
                                         }
                                     });
                                     ly+=rowH2;
