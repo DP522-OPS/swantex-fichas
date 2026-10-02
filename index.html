@@ -976,7 +976,7 @@ const EnhebradoTab = ({ structures }) => {
                                                     </span>
                                                     {hilo.torsion && (
                                                         <span className={'badge torsion-' + hilo.torsion.toLowerCase()}
-                                                            style={{fontSize:8, fontWeight:900, padding:'0 5px', borderRadius:99, flexShrink:0}}>
+                                                            style={{fontSize:11, fontWeight:900, padding:'1px 7px', borderRadius:99, flexShrink:0, lineHeight:1.2}}>
                                                             {hilo.torsion}
                                                         </span>
                                                     )}
@@ -4120,15 +4120,18 @@ const EnhebradoTab = ({ structures }) => {
                        baseline:'middle' de jsPDF en vez de calcular el offset a mano -
                        asi queda centrado sin importar el tamano de fuente o el contenido. */
                     const centerText = (txt,cx,cy)=>{ doc.text(txt, cx, cy, {align:'center', baseline:'middle'}); };
-                    /* Insignia de torsion (S/Z) en la esquina de una celda del enhebrado -
-                       mismos colores que la app: S=azul, Z=gris oscuro, sin torsion=nada */
+                    /* Insignia de torsion (S/Z) en una franja a la derecha de la celda del
+                       enhebrado - mismos colores que la app: S=azul, Z=gris oscuro, sin
+                       torsion=nada. Ocupa casi todo el alto de la celda para que la letra
+                       se vea con el mismo protagonismo que el numero del hilo. */
                     const torsionCol = t=> t==='S' ? '#1d4ed8' : t==='Z' ? '#374151' : null;
-                    const drawTorsionBadge = (x,y,sz,torsion)=>{
+                    const drawTorsionBadge = (x,y,w,h,torsion)=>{
                         const col = torsionCol(torsion);
                         if(!col) return;
                         const[r,g,b]=h2r(col);
-                        doc.setFillColor(r,g,b); doc.roundedRect(x,y,sz,sz,0.6,0.6,'F');
-                        B(sz*0.62,'#ffffff'); centerText(torsion, x+sz/2, y+sz/2+0.1);
+                        doc.setFillColor(r,g,b); doc.roundedRect(x,y,w,h,1,1,'F');
+                        const fs = Math.min(w,h)*0.78;
+                        B(fs,'#ffffff'); centerText(torsion, x+w/2, y+h/2+0.1);
                     };
 
                     /* page width/height aware helpers */
@@ -4354,19 +4357,23 @@ const EnhebradoTab = ({ structures }) => {
                                             doc.rect(gx,y,ghW,rowH,'F');
                                             doc.setFillColor(hr,hg2,hb);
                                             doc.roundedRect(gx+1,y+1,ghW-2,rowH-2,1.2,1.2,'F');
+                                            const hasT=!!hilo.torsion;
+                                            const badgeW=hasT?Math.min(7.5,ghW*0.3):0;
+                                            const textW=ghW-badgeW;
+                                            const textCx=gx+textW/2;
                                             B(7,'#0a0e1a');
-                                            const t=hilo.titulo; const max=Math.floor(ghW/2.1);
+                                            const t=hilo.titulo; const max=Math.floor(textW/2.1);
                                             if(t.length<=max){
-                                                centerText(t, gx+ghW/2, y+rowH/2);
+                                                centerText(t, textCx, y+rowH/2);
                                             } else {
                                                 const sp=t.indexOf(' ',Math.floor(t.length/2)-2);
                                                 const l1=sp>0?t.slice(0,sp):t.slice(0,max);
                                                 const l2=sp>0?t.slice(sp+1):t.slice(max);
                                                 doc.setFontSize(6);
-                                                centerText(l1, gx+ghW/2, y+rowH/2-1.6);
-                                                centerText(l2.slice(0,max), gx+ghW/2, y+rowH/2+1.8);
+                                                centerText(l1, textCx, y+rowH/2-1.6);
+                                                centerText(l2.slice(0,max), textCx, y+rowH/2+1.8);
                                             }
-                                            drawTorsionBadge(gx+ghW-4.2, y+1.2, 3.2, hilo.torsion);
+                                            if(hasT) drawTorsionBadge(gx+ghW-1-badgeW, y+1, badgeW, rowH-2, hilo.torsion);
                                         } else {
                                             sf(ai%2===0?'#110300':'#180500'); doc.rect(gx,y,ghW,rowH,'F');
                                             sd('#2a0800'); doc.setLineWidth(0.1); doc.rect(gx,y,ghW,rowH,'D');
@@ -4430,19 +4437,23 @@ const EnhebradoTab = ({ structures }) => {
                                             doc.rect(gx,ly,ghW2,rowH2,'F');
                                             doc.setFillColor(hr,hg2,hb);
                                             doc.roundedRect(gx+1.5,ly+1.5,ghW2-3,rowH2-3,1.5,1.5,'F');
+                                            const hasT=!!hilo.torsion;
+                                            const badgeW2=hasT?Math.min(9,ghW2*0.3):0;
+                                            const textW2=ghW2-badgeW2;
+                                            const textCx2=gx+textW2/2;
                                             B(8,'#0a0e1a');
-                                            const t=hilo.titulo; const max=Math.floor(ghW2/2.2);
+                                            const t=hilo.titulo; const max=Math.floor(textW2/2.2);
                                             if(t.length<=max){
-                                                centerText(t, gx+ghW2/2, ly+rowH2/2);
+                                                centerText(t, textCx2, ly+rowH2/2);
                                             } else {
                                                 const sp=t.indexOf(' ',Math.floor(t.length/2)-2);
                                                 const l1=sp>0?t.slice(0,sp):t.slice(0,max);
                                                 const l2=sp>0?t.slice(sp+1):t.slice(max);
                                                 doc.setFontSize(7);
-                                                centerText(l1, gx+ghW2/2, ly+rowH2/2-1.9);
-                                                centerText(l2.slice(0,max), gx+ghW2/2, ly+rowH2/2+2.1);
+                                                centerText(l1, textCx2, ly+rowH2/2-1.9);
+                                                centerText(l2.slice(0,max), textCx2, ly+rowH2/2+2.1);
                                             }
-                                            drawTorsionBadge(gx+ghW2-5, ly+1.5, 3.8, hilo.torsion);
+                                            if(hasT) drawTorsionBadge(gx+ghW2-1.5-badgeW2, ly+1.5, badgeW2, rowH2-3, hilo.torsion);
                                         } else {
                                             sf(ai%2===0?'#110300':'#180500'); doc.rect(gx,ly,ghW2,rowH2,'F');
                                             sd('#2a0800'); doc.setLineWidth(0.1); doc.rect(gx,ly,ghW2,rowH2,'D');
