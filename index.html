@@ -316,6 +316,26 @@
   }
   function mapaMod() { var m = {}; for (var k in seen) if (seen[k].t > 0) m[k] = seen[k].t; return m; }
   function nEnh(E) { var n = 0; if (isObj(E)) for (var k in E) { if (rich(E[k] && E[k].grid) > 0) n++; } return n; }
+  /* Regla: cada precosteo tiene como máximo 1 ficha de medidas y 1 enhebrado.
+     Basura = enhebrado cuyo precosteo ya no existe, medidas que apuntan a un precosteo inexistente,
+     y medidas repetidas para el mismo precosteo (se conserva la más completa). */
+  function analizar(L) {
+    var idsP = {}, i; (L.P || []).forEach(function (p) { if (p && p.id) idsP[p.id] = 1; });
+    var keepF = [], badF = [], porRef = {};
+    (L.F || []).forEach(function (f) {
+      if (!f || !f.id) return;
+      if (!f.fichaRefId) { keepF.push(f); return; }                  // sin vincular todavía: trabajo en curso, se respeta
+      if (!idsP[f.fichaRefId]) { badF.push(f); return; }
+      (porRef[f.fichaRefId] = porRef[f.fichaRefId] || []).push(f);
+    });
+    for (var r in porRef) {
+      var arr = porRef[r].slice().sort(function (a, b) { return (rich(sinAprob(b)) - rich(sinAprob(a))) || (((seen[b.id] && seen[b.id].t) || 0) - ((seen[a.id] && seen[a.id].t) || 0)); });
+      keepF.push(arr[0]); for (i = 1; i < arr.length; i++) badF.push(arr[i]);
+    }
+    var keepE = {}, badE = {}; for (var k in (L.E || {})) { if (idsP[k]) keepE[k] = L.E[k]; else if (rich(L.E[k] && L.E[k].grid) > 0) badE[k] = L.E[k]; }
+    var keepOrder = {}; keepF.forEach(function (f) { keepOrder[f.id] = 1; });
+    return { keep: { P: L.P || [], F: (L.F || []).filter(function (f) { return f && keepOrder[f.id]; }), E: keepE }, badF: badF, badE: badE, nBad: badF.length + Object.keys(badE).length };
+  }
   function counts(L) { return { P: (L.P || []).length, F: (L.F || []).length, E: nEnh(L.E) }; }
 
   /* ── fusión: nunca borra; lo vacío se completa con lo que tenga datos ── */
@@ -576,7 +596,7 @@
     tE = setTimeout(function () { pushEnh(fid, v).catch(function (e) { console.warn('SWSAFE ENH', fid, e); }); }, 1500);
   }
   function pushPendientes() {
-    var L = leerLocal(), cadena = Promise.resolve();
+    var L = analizar(leerLocal()).keep, cadena = Promise.resolve();
     (L.F || []).forEach(function (f) {
       if (!f || !f.id || excluir[f.id]) return;
       if (pushed[f.id] !== hash(JSON.stringify(f))) cadena = cadena.then(function () { return pushFT(f).catch(function () {}); });
@@ -700,6 +720,7 @@
     });
     (inc.F || []).forEach(function (f) {
       if (!f || !f.id || (f.fichaRefId && idsP[f.fichaRefId])) return;
+      if (f.fichaRefId && !locP[f.fichaRefId]) return;      // apunta a un precosteo que no existe en ningún lado: basura, no se trae
       gs.push({ p: null, fts: [f], e: null, estado: locF[f.id] ? (igual(locF[f.id], f) ? 'igual' : 'copia') : 'nueva' });
     });
     return gs;
@@ -776,6 +797,15 @@
       });
     });
   }
+  function limpiarBasura() {
+    var cur = leerLocal();
+    if (!(cur.P || []).length) return alert('No hay precosteos: no se limpia nada por seguridad.');
+    var an = analizar(cur);
+    if (!an.nBad) return alert('No hay basura: todo está vinculado a un precosteo ✓');
+    var nE = Object.keys(an.badE).length;
+    if (!confirm('Se van a quitar de la lista:\n• ' + nE + ' enhebrado(s) cuyo precosteo ya no existe\n• ' + an.badF.length + ' ficha(s) de medidas sueltas o repetidas\n\nNo se pierde nada para siempre: quedan en la papelera y en una copia automática.\n\n¿Limpiar?')) return;
+    return aplicar(an.keep, 'limpiar basura', null, { P: [], F: an.badF, E: an.badE });
+  }
   function guardarTodoNube() {
     if (!db()) return alert('Todavía no hay conexión con la nube. Revisa el internet e inténtalo de nuevo.');
     var L = leerLocal(), t = [];
@@ -786,7 +816,7 @@
     return Promise.all(t).then(function () { pillAct(); pintar(); alert('Listo: todo quedó guardado en la nube ✓'); });
   }
   function descargar() {
-    var L = leerLocal();
+    var L = analizar(leerLocal()).keep;
     var blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), precosteos: L.P, ft004: L.F, enhebrado: L.E, mod: mapaMod() }, null, 2)], { type: 'application/json' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
     try { wr('swsafe_lastdl', String(Date.now())); } catch (e) {}
@@ -795,7 +825,7 @@
   /* ── interfaz: botón flotante + centro de recuperación ── */
   var pill = null, hallazgo = null, pendDesde = 0, iniT = Date.now();
   function pendientes() {
-    var L = leerLocal(), n = 0, k;
+    var L = analizar(leerLocal()).keep, n = 0, k;
     (L.P || []).forEach(function (x) { if (x && x.id && pushed[x.id] !== hash(JSON.stringify(x))) n++; });
     (L.F || []).forEach(function (x) { if (x && x.id && pushed[x.id] !== hash(JSON.stringify(x))) n++; });
     for (k in (L.E || {})) if (rich(L.E[k].grid) > 0 && pushed['ENH-' + k] !== hash(JSON.stringify(L.E[k]))) n++;
@@ -843,9 +873,10 @@
     var huF = (L.F || []).filter(function (f) { return f.fichaRefId && !idsP[f.fichaRefId]; }).length;
     var huE = Object.keys(L.E || {}).filter(function (k) { return rich(L.E[k].grid) > 0 && !idsP[k]; }).length;
     var dl = parseInt(rd('swsafe_lastdl') || '0', 10);
-    var n = pendientes();
+    var n = pendientes(), an = analizar(L), cv = counts(an.keep);
     var h = '<div style="display:flex;justify-content:space-between;gap:8px"><div><h2>🛟 Mis fichas: copias y recuperación</h2><div class="m">Todo lo que haces se guarda solo en la nube. Lo que traes de un archivo llega como ficha separada: <b>nunca se mezcla</b> con las que ya tienes.</div></div><button class="g" data-a="cerrar">Cerrar ✕</button></div>';
-    h += '<div style="margin-top:10px">Ahora tienes: <b>' + c.P + '</b> precosteos · <b>' + c.F + '</b> fichas de medidas · <b>' + c.E + '</b> enhebrados &nbsp;·&nbsp; ' + (!db() ? '<span class="wa">sin conexión a la nube</span>' : n ? '<span class="wa">' + n + ' sin guardar en la nube</span>' : '<span class="ok">todo guardado en la nube ✓</span>') + '</div>';
+    h += '<div style="margin-top:10px">Ahora tienes: <b>' + cv.P + '</b> precosteos · <b>' + cv.F + '</b> fichas de medidas · <b>' + cv.E + '</b> enhebrados &nbsp;·&nbsp; ' + (!db() ? '<span class="wa">sin conexión a la nube</span>' : n ? '<span class="wa">' + n + ' sin guardar en la nube</span>' : '<span class="ok">todo guardado en la nube ✓</span>') + '</div>';
+    if (an.nBad) h += '<div class="wa" style="margin-top:6px">🧹 Hay ' + Object.keys(an.badE).length + ' enhebrado(s) y ' + an.badF.length + ' ficha(s) de medidas que no pertenecen a ningún precosteo (o están repetidas). Son basura: <button data-a="limpiar">🧹 Limpiar</button></div>';
     h += '<div style="margin-top:12px"><label class="b big">📂 Traer fichas desde un archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label>' +
          '<button class="big" data-a="deshacer">↩ Deshacer la última importación</button>' +
          '<button class="big" data-a="guardarnube">☁ Guardar todo en la nube ahora</button>' +
@@ -889,6 +920,7 @@
     if (a === 'cerrar') return cerrarPanel();
     if (a === 'descargar') { descargar(); return pintar(); }
     if (a === 'deshacer') return deshacerImport();
+    if (a === 'limpiar') return limpiarBasura();
     if (a === 'guardarnube') return guardarTodoNube();
     if (a === 'todas') {
       listarSnaps().then(function (all) {
