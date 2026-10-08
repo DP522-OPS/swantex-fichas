@@ -251,6 +251,502 @@
 </head>
 <body>
     <div id="root"></div>
+    <script>
+/* ══════════════════════════════════════════════════════════════════
+   SWSAFE — Blindaje de datos (copias automáticas, fusión sin borrar,
+   respaldo en la nube y centro de recuperación).
+   Protege: precosteos (swantex_v6), fichas FT-CIR-004 (swantex_ft004_v2)
+   y enhebrado (swantex_enh_v2). Nada de aquí borra datos del usuario.
+   ══════════════════════════════════════════════════════════════════ */
+(function () {
+  if (window.SWSAFE) return;
+  var KP = 'swantex_v6', KF = 'swantex_ft004_v2', KE = 'swantex_enh_v2';
+  var WATCH = {}; WATCH[KP] = 1; WATCH[KF] = 1; WATCH[KE] = 1;
+  var APR = ['aproboArmado', 'aproboCorseteria', 'aproboCalidad', 'aproboDiseno', 'fechaAprobacion', 'status'];
+  var qs = new URLSearchParams(location.search);
+  var APROB = !!(qs.get('fichaId') || qs.get('fichaIds'));
+
+  /* ── utilidades ── */
+  var rawSet = Storage.prototype.setItem;
+  function rd(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function wr(k, v) { rawSet.call(localStorage, k, v); }
+  function pj(s, def) { try { var x = JSON.parse(s); return x == null ? def : x; } catch (e) { return def; } }
+  var META = /^_(updatedAt|updatedBy|deletedAt)$/;
+  function isObj(x) { return x && typeof x === 'object' && !Array.isArray(x); }
+  function vacio(v) { return v === '' || v === null || v === undefined || v === 0 || v === false; }
+  function rich(o) {
+    var n = 0;
+    (function w(x) {
+      if (x === null || x === undefined) return;
+      var t = typeof x;
+      if (t === 'string') { if (x.trim() !== '') n++; }
+      else if (t === 'number') { if (x !== 0) n++; }
+      else if (t === 'boolean') { if (x) n++; }
+      else if (Array.isArray(x)) { for (var i = 0; i < x.length; i++) w(x[i]); }
+      else if (t === 'object') { for (var k in x) { if (META.test(k)) continue; w(x[k]); } }
+    })(o);
+    return n;
+  }
+  function hash(s) { var h = 5381, i = s.length; while (i) h = (h * 33) ^ s.charCodeAt(--i); return (h >>> 0).toString(36) + ':' + s.length; }
+  function esc(t) { return String(t == null ? '' : t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+  function fmtF(t) { var d = new Date(t); function z(n) { return ('0' + n).slice(-2); } return z(d.getDate()) + '/' + z(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' + z(d.getHours()) + ':' + z(d.getMinutes()); }
+  function db() { return window.SWANTEX_FIREBASE && window.SWANTEX_FIREBASE.db; }
+  function escKeys(input) {
+    var s = JSON.stringify(input, function (k, v) { return typeof v === 'function' ? undefined : v; });
+    return JSON.parse(s.replace(/"__([^"]+)__"\s*:/g, '"_fb_$1_":'));
+  }
+  function unescKeys(input) { return JSON.parse(JSON.stringify(input).replace(/"_fb_([^"]+)_"\s*:/g, '"__$1__":')); }
+  function leerLocal() { return { P: pj(rd(KP), []), F: pj(rd(KF), []), E: pj(rd(KE), {}) }; }
+  function nEnh(E) { var n = 0; if (isObj(E)) for (var k in E) { if (rich(E[k] && E[k].grid) > 0) n++; } return n; }
+  function counts(L) { return { P: (L.P || []).length, F: (L.F || []).length, E: nEnh(L.E) }; }
+
+  /* ── fusión: nunca borra; lo vacío se completa con lo que tenga datos ── */
+  function mergeDeep(a, b, pref) {          // pref: 'a' | 'b' gana si ambos tienen datos distintos
+    if (isObj(a) && isObj(b)) {
+      var out = {}, k;
+      for (k in a) out[k] = a[k];
+      for (k in b) { if (META.test(k) && !(k in a)) continue; out[k] = (k in a) ? mergeDeep(a[k], b[k], pref) : b[k]; }
+      return out;
+    }
+    var ra = rich(a), rb = rich(b);
+    if (ra === 0 && rb > 0) return b;
+    if (rb === 0 && ra > 0) return a;
+    if (Array.isArray(a) && Array.isArray(b)) {          // listas: gana la más completa
+      if (rb > ra) return b; if (ra > rb) return a;
+    }
+    return pref === 'b' ? b : a;
+  }
+  function mergeFicha(local, remote, pref) {   // por defecto (arranque) gana la nube en empates
+    if (!local) return remote; if (!remote) return local;
+    var m = mergeDeep(local, remote, pref === 'local' ? 'a' : 'b');
+    return m;
+  }
+  function planear(loc, inc) {
+    var rep = { P: { add: 0, mej: 0 }, F: { add: 0, mej: 0 }, E: { add: 0, mej: 0 } };
+    var out = { P: (loc.P || []).slice(), F: (loc.F || []).slice(), E: Object.assign({}, loc.E || {}) };
+    function lista(key) {
+      var idx = {}; out[key].forEach(function (x, i) { if (x && x.id) idx[x.id] = i; });
+      (inc[key] || []).forEach(function (x) {
+        if (!x || !x.id) return;
+        if (!(x.id in idx)) { out[key].push(x); idx[x.id] = out[key].length - 1; rep[key].add++; }
+        else {
+          var cur = out[key][idx[x.id]], m = mergeFicha(cur, x, 'local');
+          if (JSON.stringify(m) !== JSON.stringify(cur)) { out[key][idx[x.id]] = m; rep[key].mej++; }
+        }
+      });
+    }
+    lista('P'); lista('F');
+    for (var k in (inc.E || {})) {
+      var v = inc.E[k]; if (!v || rich(v.grid) === 0) continue;
+      if (!out.E[k] || rich(out.E[k].grid) === 0) { out.E[k] = v; rep.E.add++; }
+      else {
+        var g = mergeDeep(out.E[k].grid || {}, v.grid || {}, 'a');
+        if (JSON.stringify(g) !== JSON.stringify(out.E[k].grid)) { out.E[k] = Object.assign({}, out.E[k], { grid: g }); rep.E.mej++; }
+      }
+    }
+    return { rep: rep, merged: out, total: rep.P.add + rep.P.mej + rep.F.add + rep.F.mej + rep.E.add + rep.E.mej };
+  }
+  function textoPlan(pl) {
+    var r = pl.rep;
+    return 'Precosteos: ' + r.P.add + ' nuevos, ' + r.P.mej + ' completados\n' +
+           'Fichas FT-CIR-004 (medidas): ' + r.F.add + ' nuevas, ' + r.F.mej + ' completadas\n' +
+           'Enhebrados: ' + r.E.add + ' nuevos, ' + r.E.mej + ' completados';
+  }
+  function normalizar(d) {
+    if (Array.isArray(d)) return { P: d, F: [], E: {} };
+    if (d && typeof d === 'object') {
+      if (d.version === 2 || d.precosteos || d.ft004 || d.enhebrado)
+        return { P: Array.isArray(d.precosteos) ? d.precosteos : [], F: Array.isArray(d.ft004) ? d.ft004 : [], E: isObj(d.enhebrado) ? d.enhebrado : {} };
+      if (d.id && d.fibras) return { P: [d], F: [], E: {} };
+      if (d.id && /^FT004-/.test(d.id)) return { P: [], F: [d], E: {} };
+    }
+    return null;
+  }
+
+  /* ── copias automáticas en IndexedDB (sobreviven aunque se pise localStorage) ── */
+  var idbP = null;
+  function idb() {
+    if (idbP) return idbP;
+    idbP = new Promise(function (res, rej) {
+      try {
+        var r = indexedDB.open('swantex_safe', 1);
+        r.onupgradeneeded = function () { r.result.createObjectStore('meta', { keyPath: 'id', autoIncrement: true }); r.result.createObjectStore('blob', { keyPath: 'id' }); };
+        r.onsuccess = function () { res(r.result); };
+        r.onerror = function () { rej(r.error); };
+      } catch (e) { rej(e); }
+    });
+    return idbP;
+  }
+  function idbDo(stores, mode, fn) {
+    return idb().then(function (d) {
+      return new Promise(function (res, rej) {
+        var t = d.transaction(stores, mode), out = {};
+        fn(t, out);
+        t.oncomplete = function () { res(out.v); };
+        t.onerror = t.onabort = function () { rej(t.error); };
+      });
+    });
+  }
+  var lastHash = null, nSnaps = 0, lastSnapT = 0;
+  function snap(motivo, key, oldVal) {
+    var P = rd(KP), F = rd(KF), E = rd(KE);
+    if (key === KP) P = oldVal; if (key === KF) F = oldVal; if (key === KE) E = oldVal;
+    P = P || '[]'; F = F || '[]'; E = E || '{}';
+    var h = hash(P + '|' + F + '|' + E);
+    if (h === lastHash) return Promise.resolve(null);
+    var c = counts({ P: pj(P, []), F: pj(F, []), E: pj(E, {}) });
+    if (c.P + c.F + c.E === 0) return Promise.resolve(null);       // no guardar copias vacías
+    lastHash = h;
+    var meta = { t: Date.now(), motivo: motivo, h: h, cP: c.P, cF: c.F, cE: c.E, rich: rich(pj(P, [])) + rich(pj(F, [])) + rich(pj(E, {})) };
+    return idbDo(['meta', 'blob'], 'readwrite', function (t, out) {
+      var rq = t.objectStore('meta').add(meta);
+      rq.onsuccess = function () { t.objectStore('blob').put({ id: rq.result, P: P, F: F, E: E }); out.v = rq.result; };
+    }).then(function (id) { lastSnapT = meta.t; return podar().then(function () { pillAct(); return id; }); })
+      .catch(function (e) { console.warn('SWSAFE snap', e); lastHash = null; return null; });
+  }
+  function listarSnaps() {
+    return idbDo(['meta'], 'readonly', function (t, out) { var r = t.objectStore('meta').getAll(); r.onsuccess = function () { out.v = r.result.sort(function (a, b) { return b.t - a.t; }); }; }).catch(function () { return []; });
+  }
+  function podar() {
+    return listarSnaps().then(function (all) {
+      nSnaps = all.length;
+      var keep = {}, i;
+      all.slice(0, 30).forEach(function (m) { keep[m.id] = 1; });
+      all.slice().sort(function (a, b) { return b.rich - a.rich; }).slice(0, 5).forEach(function (m) { keep[m.id] = 1; });
+      var dias = {};
+      all.forEach(function (m) { var d = new Date(m.t).toDateString(); if (!dias[d] && Date.now() - m.t < 14 * 864e5) { dias[d] = 1; keep[m.id] = 1; } });
+      var borrar = all.filter(function (m) { return !keep[m.id]; });
+      if (!borrar.length) return;
+      nSnaps = all.length - borrar.length;
+      return idbDo(['meta', 'blob'], 'readwrite', function (t) { borrar.forEach(function (m) { t.objectStore('meta').delete(m.id); t.objectStore('blob').delete(m.id); }); });
+    });
+  }
+  function leerSnap(id) {
+    return idbDo(['blob'], 'readonly', function (t, out) { var r = t.objectStore('blob').get(id); r.onsuccess = function () { out.v = r.result; }; });
+  }
+
+  /* ── guardia: si una escritura reduce mucho los datos, se copia lo anterior ── */
+  var lastGuard = {};
+  if (!APROB) {
+    Storage.prototype.setItem = function (k, v) {
+      try {
+        if (this === window.localStorage && WATCH[k]) {
+          var old = rd(k);
+          if (old && typeof v === 'string' && v !== old) {
+            var drop = (old.length - v.length) / old.length, now = Date.now();
+            if (drop > 0.10 && (drop > 0.30 || now - (lastGuard[k] || 0) > 15000)) { lastGuard[k] = now; snap('Antes de una reducción de datos (' + k.replace('swantex_', '') + ')', k, old); }
+          }
+        }
+      } catch (e) {}
+      return rawSet.apply(this, arguments);
+    };
+  }
+
+  /* ── nube ── */
+  var recientes = {};
+  function respaldo(docId, data, motivo) {
+    var d = db(); if (!d) return Promise.resolve();
+    var now = Date.now(); if (recientes[docId] && now - recientes[docId] < 600000) return Promise.resolve();
+    recientes[docId] = now;
+    var js; try { js = JSON.stringify(data); } catch (e) { return Promise.resolve(); }
+    return d.collection('fichas').doc('PAPELERA-' + docId + '-' + now.toString(36)).set({ tipo: 'papelera', origen: docId, motivo: motivo, json: js, _deletedAt: now }).catch(function () {});
+  }
+  function papelera(p) {              // en vez de borrar de la nube, se guarda copia recuperable
+    var d = db(); if (!d) return Promise.resolve();
+    var del = function () { return d.collection('fichas').doc(p.id).delete().catch(function () {}); };
+    if (APROB) return del();
+    return respaldo(p.id, p, 'eliminado').then(del);
+  }
+  function guardarPrecosteo(s) {      // nunca pisa una versión más completa sin guardarla antes
+    var d = db(); if (!d) return Promise.resolve();
+    var ref = d.collection('fichas').doc(s.id);
+    if (APROB) return ref.set(s);
+    return ref.get().then(function (sn) {
+      if (sn.exists) {
+        var c = sn.data();
+        if (JSON.stringify(c) === JSON.stringify(s)) return;
+        if (rich(c) > rich(s)) return respaldo(s.id, c, 'version anterior mas completa').then(function () { return ref.set(s); });
+      }
+      return ref.set(s);
+    });
+  }
+  var pushed = pj(rd('swsafe_pushed'), {});
+  function marcar(id, h) { pushed[id] = h; try { wr('swsafe_pushed', JSON.stringify(pushed)); } catch (e) {} }
+  function sinAprob(f) { var o = {}; for (var k in f) if (APR.indexOf(k) < 0) o[k] = f[k]; return o; }
+  function pushFT(f, completo) {
+    var d = db(); if (!d || APROB || !f || !f.id) return Promise.resolve();
+    var ref = d.collection('fichas').doc(f.id), h = hash(JSON.stringify(f));
+    var safe = escKeys(Object.assign({}, f, { _updatedAt: Date.now(), _updatedBy: 'elaboro-auto' }));
+    return ref.get().then(function (sn) {
+      if (!sn.exists || completo) return ref.set(safe);
+      var c = unescKeys(sn.data()), part = {};
+      Object.keys(safe).forEach(function (k) { if (APR.indexOf(k) < 0 && k !== 'id') part[k] = safe[k]; });
+      var pre = rich(sinAprob(c)) > rich(sinAprob(f)) ? respaldo(f.id, sn.data(), 'ficha mas completa en la nube') : Promise.resolve();
+      return pre.then(function () { return ref.update(part); });
+    }).then(function () { marcar(f.id, h); });
+  }
+  function pushEnh(fid, v) {
+    var d = db(); if (!d || APROB || !v) return Promise.resolve();
+    var ref = d.collection('fichas').doc('ENH-' + fid), h = hash(JSON.stringify(v));
+    var data = { tipo: 'enhebrado', fichaId: fid, numAlim: v.numAlim || 8, numGH: v.numGH || 9, gridJson: JSON.stringify(v.grid || {}), _updatedAt: Date.now() };
+    return ref.get().then(function (sn) {
+      var pre = Promise.resolve();
+      if (sn.exists && rich(pj(sn.data().gridJson, {})) > rich(v.grid)) pre = respaldo('ENH-' + fid, sn.data(), 'enhebrado mas completo en la nube');
+      return pre.then(function () { return ref.set(data); });
+    }).then(function () { marcar('ENH-' + fid, h); });
+  }
+  var excluir = {};                       // ids con datos más completos en la nube (no se pisan sin avisar)
+  var tF = null, tE = null;
+  function ftCambio(data) {
+    if (APROB) return;
+    clearTimeout(tF);
+    tF = setTimeout(function () {
+      var cadena = Promise.resolve();
+      (data || []).forEach(function (f) {
+        if (!f || !f.id) return;
+        var h = hash(JSON.stringify(f)); if (pushed[f.id] === h) return;
+        cadena = cadena.then(function () { return pushFT(f).catch(function (e) { console.warn('SWSAFE FT', f.id, e); }); });
+      });
+    }, 2000);
+  }
+  function enhCambio(fid, v) {
+    if (APROB) return;
+    clearTimeout(tE);
+    tE = setTimeout(function () { pushEnh(fid, v).catch(function (e) { console.warn('SWSAFE ENH', fid, e); }); }, 1500);
+  }
+  function pushPendientes() {
+    var L = leerLocal(), cadena = Promise.resolve();
+    (L.F || []).forEach(function (f) {
+      if (!f || !f.id || excluir[f.id]) return;
+      if (pushed[f.id] !== hash(JSON.stringify(f))) cadena = cadena.then(function () { return pushFT(f).catch(function () {}); });
+    });
+    for (var k in (L.E || {})) (function (fid) {
+      var v = L.E[fid]; if (!v || rich(v.grid) === 0 || excluir['ENH-' + fid]) return;
+      if (pushed['ENH-' + fid] !== hash(JSON.stringify(v))) cadena = cadena.then(function () { return pushEnh(fid, v).catch(function () {}); });
+    })(k);
+    return cadena;
+  }
+  function escanearNube() {
+    var d = db(); if (!d) return Promise.reject(new Error('Sin conexión a la nube todavía'));
+    var FP = firebase.firestore.FieldPath;
+    function r(pref) {
+      return d.collection('fichas').where(FP.documentId(), '>=', pref).where(FP.documentId(), '<', pref + '').get().then(function (s) {
+        var a = []; s.forEach(function (x) { a.push({ id: x.id, data: x.data() }); }); return a;
+      });
+    }
+    return Promise.all([r('SW-'), r('FT004-'), r('ENH-'), r('PAPELERA-')]).then(function (res) {
+      var inc = { P: [], F: [], E: {} }, pap = [];
+      res[0].forEach(function (x) { if (x.data && x.data.fibras) inc.P.push(x.data); });
+      res[1].forEach(function (x) { try { var f = unescKeys(x.data); f.id = f.id || x.id; inc.F.push(f); } catch (e) {} });
+      res[2].forEach(function (x) { var fid = x.data.fichaId || x.id.replace(/^ENH-/, ''); inc.E[fid] = { grid: pj(x.data.gridJson, {}), numAlim: x.data.numAlim || 8, numGH: x.data.numGH || 9 }; });
+      res[3].forEach(function (x) { pap.push({ id: x.id, t: x.data._deletedAt || 0, origen: x.data.origen, motivo: x.data.motivo, json: x.data.json }); });
+      pap.sort(function (a, b) { return b.t - a.t; });
+      return { inc: inc, papelera: pap, n: { P: inc.P.length, F: inc.F.length, E: Object.keys(inc.E).length, T: pap.length } };
+    });
+  }
+  function incDePapelera(items) {
+    var inc = { P: [], F: [], E: {} };
+    items.forEach(function (it) {
+      var o = pj(it.json, null); if (!o) return;
+      if (/^SW-/.test(it.origen) && o.fibras) inc.P.push(o);
+      else if (/^FT004-/.test(it.origen)) { try { var f = unescKeys(o); f.id = f.id || it.origen; inc.F.push(f); } catch (e) {} }
+      else if (/^ENH-/.test(it.origen)) { var fid = o.fichaId || it.origen.replace(/^ENH-/, ''); inc.E[fid] = { grid: pj(o.gridJson, {}), numAlim: o.numAlim || 8, numGH: o.numGH || 9 }; }
+    });
+    return inc;
+  }
+
+  /* ── aplicar (siempre con copia previa; nunca borra; luego recarga) ── */
+  function aplicar(merged, etiqueta, exacto) {
+    return snap('Antes de ' + etiqueta).then(function () {
+      wr(KP, JSON.stringify(merged.P)); wr(KF, JSON.stringify(merged.F)); wr(KE, JSON.stringify(merged.E));
+      lastHash = null;
+      var tareas = [];
+      if (db()) {
+        merged.P.forEach(function (s) { if (s && s.id) tareas.push(guardarPrecosteo(s).catch(function () {})); });
+        merged.F.forEach(function (f) { if (f && f.id) tareas.push(pushFT(f, true).catch(function () {})); });
+        for (var k in merged.E) if (merged.E[k] && rich(merged.E[k].grid) > 0) tareas.push(pushEnh(k, merged.E[k]).catch(function () {}));
+      }
+      return Promise.race([Promise.all(tareas), new Promise(function (r) { setTimeout(r, 12000); })]);
+    }).then(function () { snap('Después de ' + etiqueta); setTimeout(function () { location.reload(); }, 700); });
+  }
+  function fusionar(inc, etiqueta) {
+    var pl = planear(leerLocal(), inc);
+    if (pl.total === 0) { alert('No hay nada que recuperar de ' + etiqueta + ': lo que tienes aquí ya es igual o más completo.'); return Promise.resolve(); }
+    if (!confirm('Se va a FUSIONAR con ' + etiqueta + ' (no se borra nada de lo actual):\n\n' + textoPlan(pl) + '\n\nAntes se guarda una copia de seguridad automática. ¿Continuar?')) return Promise.resolve();
+    return aplicar(pl.merged, 'fusionar ' + etiqueta);
+  }
+  function importarArchivo(file) {
+    var r = new FileReader();
+    r.onload = function (ev) {
+      try {
+        var inc = normalizar(JSON.parse(ev.target.result));
+        if (!inc) { alert('Formato de backup no reconocido.'); return; }
+        fusionar(inc, 'el archivo ' + (file.name || 'JSON'));
+      } catch (e) { alert('Archivo inválido: ' + e.message); }
+    };
+    r.readAsText(file);
+  }
+  function descargar() {
+    var L = leerLocal();
+    var blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), precosteos: L.P, ft004: L.F, enhebrado: L.E }, null, 2)], { type: 'application/json' });
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
+    try { wr('swsafe_lastdl', String(Date.now())); } catch (e) {}
+  }
+
+  /* ── interfaz: botón flotante + centro de recuperación ── */
+  var pill = null, hallazgo = null;
+  function pillAct() {
+    if (!pill) return;
+    var dl = parseInt(rd('swsafe_lastdl') || '0', 10);
+    var alerta = hallazgo && hallazgo.total > 0;
+    pill.style.background = alerta ? '#b45309' : '#065f46';
+    pill.innerHTML = alerta ? '⚠ Hay datos por recuperar — clic aquí'
+      : '🛡 Protegido · ' + nSnaps + ' copias' + (lastSnapT ? ' · ' + fmtF(lastSnapT).slice(11) : '');
+    pill.title = 'Centro de recuperación y protección de datos' + (dl ? '\nÚltimo backup descargado: ' + fmtF(dl) : '\nNunca has descargado un backup .json');
+  }
+  var CSS = '#swsafe-pill{position:fixed;left:12px;bottom:12px;z-index:9998;color:#fff;border:0;border-radius:20px;padding:7px 14px;font:700 12px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px #0008}' +
+    '#swsafe-ov{position:fixed;inset:0;z-index:9999;background:#000b;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}' +
+    '#swsafe-box{background:#0f172a;color:#e2e8f0;border:1px solid #334155;border-radius:14px;max-width:880px;width:100%;padding:18px 20px;font:13px/1.5 system-ui,sans-serif}' +
+    '#swsafe-box h2{margin:0 0 4px;font-size:18px}#swsafe-box h3{margin:18px 0 6px;font-size:13px;color:#7dd3fc;text-transform:uppercase;letter-spacing:.05em}' +
+    '#swsafe-box table{width:100%;border-collapse:collapse}#swsafe-box td,#swsafe-box th{padding:5px 8px;border-bottom:1px solid #1e293b;text-align:left;font-size:12px}' +
+    '#swsafe-box button,#swsafe-box label.b{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:6px 11px;font:700 12px system-ui;cursor:pointer;margin:2px 3px 2px 0;display:inline-block}' +
+    '#swsafe-box button.g{background:#334155}#swsafe-box button.r{background:#b91c1c}#swsafe-box .m{color:#94a3b8;font-size:12px}#swsafe-box .ok{color:#6ee7b7}#swsafe-box .wa{color:#fbbf24}';
+  function crearPill() {
+    if (APROB || pill) return;
+    var st = document.createElement('style'); st.textContent = CSS + '@media print{#swsafe-pill,#swsafe-ov{display:none!important}}'; document.head.appendChild(st);
+    pill = document.createElement('button'); pill.id = 'swsafe-pill'; pill.className = 'no-print';
+    pill.onclick = abrirPanel; document.body.appendChild(pill); pillAct();
+  }
+  function cerrarPanel() { var o = document.getElementById('swsafe-ov'); if (o) o.remove(); }
+  var cacheNube = null, cacheSnaps = {};
+  function abrirPanel() {
+    cerrarPanel();
+    var ov = document.createElement('div'); ov.id = 'swsafe-ov'; ov.className = 'no-print';
+    ov.innerHTML = '<div id="swsafe-box"></div>';
+    ov.addEventListener('mousedown', function (e) { if (e.target === ov) cerrarPanel(); });
+    document.body.appendChild(ov);
+    pintar();
+  }
+  function pintar() {
+    var box = document.getElementById('swsafe-box'); if (!box) return;
+    var L = leerLocal(), c = counts(L);
+    var idsP = {}; (L.P || []).forEach(function (s) { idsP[s.id] = 1; });
+    var huF = (L.F || []).filter(function (f) { return f.fichaRefId && !idsP[f.fichaRefId]; }).length;
+    var huE = Object.keys(L.E || {}).filter(function (k) { return rich(L.E[k].grid) > 0 && !idsP[k]; }).length;
+    var dl = parseInt(rd('swsafe_lastdl') || '0', 10);
+    var h = '<div style="display:flex;justify-content:space-between;gap:8px"><div><h2>🛟 Centro de recuperación y protección</h2><div class="m">Todo lo que haces aquí FUSIONA: nunca borra lo que ya tienes y siempre guarda una copia antes.</div></div><button class="g" data-a="cerrar">Cerrar ✕</button></div>';
+    h += '<h3>1 · Lo que hay ahora en este navegador</h3><div>Precosteos: <b>' + c.P + '</b> · Fichas FT-CIR-004 (medidas): <b>' + c.F + '</b> · Enhebrados con datos: <b>' + c.E + '</b></div>';
+    if (huF || huE) h += '<div class="wa">⚠ ' + huF + ' ficha(s) FT-CIR-004 y ' + huE + ' enhebrado(s) apuntan a un precosteo que ya no existe aquí (ids distintos). Los datos están guardados, pero desvinculados.</div>';
+    h += '<div class="m">Backup .json descargado por última vez: ' + (dl ? fmtF(dl) : '<span class="wa">nunca</span>') + ' &nbsp; <button data-a="descargar">⬇ Descargar copia completa ahora</button></div>';
+    h += '<h3>2 · Copias automáticas de este navegador</h3><div><button data-a="todas">⭐ Recuperar lo mejor de TODAS las copias (recomendado)</button> <span class="m">junta lo más completo de cada copia, sin borrar nada</span></div><div id="sw-snaps" class="m">Cargando…</div>';
+    h += '<h3>3 · Nube (Firestore)</h3><div class="m">Busca fichas, medidas y enhebrados guardados en la nube y los copias aquí si faltan o están más completos.</div><button data-a="nube">☁ Buscar en la nube</button><div id="sw-nube"></div>';
+    h += '<h3>4 · Desde un archivo de backup (.json)</h3><label class="b">📂 Elegir archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label> <span class="m">Se fusiona con lo actual; no reemplaza nada.</span>';
+    box.innerHTML = h;
+    listarSnaps().then(function (all) {
+      var el = document.getElementById('sw-snaps'); if (!el) return;
+      if (!all.length) { el.textContent = 'Aún no hay copias (se crean solas al abrir y al trabajar).'; return; }
+      var t = '<table><tr><th>Fecha</th><th>Motivo</th><th>Precost.</th><th>FT</th><th>Enh.</th><th></th></tr>';
+      all.forEach(function (m) {
+        t += '<tr><td>' + fmtF(m.t) + '</td><td>' + esc(m.motivo) + '</td><td>' + m.cP + '</td><td>' + m.cF + '</td><td>' + m.cE + '</td><td>' +
+          '<button data-a="snapfus" data-id="' + m.id + '">Fusionar</button><button class="g" data-a="snapdl" data-id="' + m.id + '">⬇ .json</button><button class="r" data-a="snapex" data-id="' + m.id + '">Restaurar exacta</button></td></tr>';
+      });
+      el.innerHTML = t + '</table>';
+    });
+    if (cacheNube) pintarNube();
+  }
+  function pintarNube() {
+    var el = document.getElementById('sw-nube'); if (!el || !cacheNube) return;
+    var n = cacheNube.n, pl = planear(leerLocal(), cacheNube.inc);
+    var h = '<div style="margin-top:6px">En la nube: <b>' + n.P + '</b> precosteos · <b>' + n.F + '</b> fichas FT-CIR-004 · <b>' + n.E + '</b> enhebrados · <b>' + n.T + '</b> copias en papelera.</div>';
+    h += pl.total ? '<div class="wa">Por recuperar: ' + esc(textoPlan(pl)).replace(/\n/g, ' · ') + '</div><button data-a="nubefus">Recuperar de la nube (fusionar)</button>'
+                  : '<div class="ok">✓ Lo que hay aquí ya es igual o más completo que la nube.</div>';
+    if (cacheNube.papelera.length) {
+      h += '<div class="m" style="margin-top:8px">Papelera / versiones anteriores guardadas por el sistema:</div><table>';
+      cacheNube.papelera.slice(0, 40).forEach(function (p, i) {
+        h += '<tr><td>' + (p.t ? fmtF(p.t) : '') + '</td><td>' + esc(p.origen) + '</td><td>' + esc(p.motivo) + '</td><td><button data-a="pap" data-i="' + i + '">Recuperar</button></td></tr>';
+      });
+      h += '</table>';
+    }
+    el.innerHTML = h;
+  }
+  document.addEventListener('click', function (e) {
+    var b = e.target.closest ? e.target.closest('#swsafe-box [data-a]') : null; if (!b) return;
+    var a = b.getAttribute('data-a'), id = parseInt(b.getAttribute('data-id') || '0', 10);
+    if (a === 'cerrar') return cerrarPanel();
+    if (a === 'descargar') { descargar(); return pintar(); }
+    if (a === 'todas') {
+      listarSnaps().then(function (all) {
+        var cur = leerLocal(), tareas = all.slice().reverse().map(function (m) { return leerSnap(m.id); });
+        return Promise.all(tareas).then(function (bl) {
+          var acum = { P: (cur.P || []).slice(), F: (cur.F || []).slice(), E: Object.assign({}, cur.E || {}) };
+          bl.forEach(function (s) { if (!s) return; acum = planear(acum, { P: pj(s.P, []), F: pj(s.F, []), E: pj(s.E, {}) }).merged; });
+          var pl = planear(cur, acum);
+          if (pl.total === 0) return alert('No hay nada que recuperar de las copias: lo que tienes aquí ya es igual o más completo.');
+          if (!confirm('Se va a FUSIONAR lo mejor de ' + all.length + ' copias automáticas (no se borra nada de lo actual):\n\n' + textoPlan(pl) + '\n\nAntes se guarda una copia de seguridad. ¿Continuar?')) return;
+          return aplicar(pl.merged, 'fusionar todas las copias');
+        });
+      });
+      return;
+    }
+    if (a === 'nube') {
+      var el = document.getElementById('sw-nube'); el.innerHTML = '<div class="m">Buscando…</div>';
+      escanearNube().then(function (r) { cacheNube = r; pintarNube(); }).catch(function (er) { el.innerHTML = '<div class="wa">No se pudo leer la nube: ' + esc(er.message || er) + '</div>'; });
+      return;
+    }
+    if (a === 'nubefus' && cacheNube) return fusionar(cacheNube.inc, 'la nube');
+    if (a === 'pap' && cacheNube) { var it = cacheNube.papelera[parseInt(b.getAttribute('data-i'), 10)]; return fusionar(incDePapelera([it]), 'la papelera (' + it.origen + ')'); }
+    if (a === 'snapfus' || a === 'snapdl' || a === 'snapex') {
+      leerSnap(id).then(function (s) {
+        if (!s) return alert('Copia no encontrada.');
+        var inc = { P: pj(s.P, []), F: pj(s.F, []), E: pj(s.E, {}) };
+        if (a === 'snapdl') {
+          var blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), precosteos: inc.P, ft004: inc.F, enhebrado: inc.E }, null, 2)], { type: 'application/json' });
+          var x = document.createElement('a'); x.href = URL.createObjectURL(blob); x.download = 'Swantex_Copia_' + id + '.json'; x.click(); return;
+        }
+        if (a === 'snapfus') return fusionar(inc, 'la copia automática');
+        if (!confirm('RESTAURAR EXACTA: lo que hay ahora será reemplazado por esta copia (' + counts(inc).P + ' precosteos, ' + counts(inc).F + ' FT, ' + counts(inc).E + ' enhebrados).\nAntes se guarda una copia de lo actual, así que puedes deshacerlo.\n\n¿Continuar?')) return;
+        aplicar(inc, 'restauración exacta');
+      });
+    }
+  });
+  document.addEventListener('change', function (e) {
+    var t = e.target;
+    if (t && t.getAttribute && t.getAttribute('data-a') === 'archivo' && t.files && t.files[0]) { importarArchivo(t.files[0]); t.value = ''; }
+  });
+
+  /* ── arranque ── */
+  function iniciar() {
+    if (APROB) return;
+    crearPill();
+    setTimeout(function () { snap('Al abrir la hoja'); }, 1500);
+    setInterval(function () { snap('Automática'); }, 300000);
+    podar().then(pillAct);
+    var intentos = 0;
+    (function esperar() {
+      if (!db()) { if (++intentos < 200) setTimeout(esperar, 300); return; }
+      var ult = parseInt(rd('swsafe_lastscan') || '0', 10);
+      var seguir = function () { pushPendientes().catch(function () {}); };
+      if (Date.now() - ult < 3600000) { setTimeout(seguir, 4000); return; }
+      setTimeout(function () {
+        escanearNube().then(function (r) {
+          wr('swsafe_lastscan', String(Date.now()));
+          cacheNube = r;
+          var pl = planear(leerLocal(), r.inc); hallazgo = pl;
+          // ids con algo más completo/ausente en la nube: no se pisan sin que el usuario decida
+          ['P', 'F'].forEach(function (k) { (r.inc[k] || []).forEach(function (x) { var cur = (leerLocal()[k] || []).filter(function (y) { return y.id === x.id; })[0]; if (!cur || JSON.stringify(mergeFicha(cur, x, 'local')) !== JSON.stringify(cur)) excluir[x.id] = 1; }); });
+          for (var f in r.inc.E) { var loc = leerLocal().E[f]; if (!loc || rich(loc.grid) < rich(r.inc.E[f].grid)) excluir['ENH-' + f] = 1; }
+          pillAct(); seguir();
+        }).catch(function () { seguir(); });
+      }, 3500);
+    })();
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
+
+  window.SWSAFE = { mergeFicha: mergeFicha, papelera: papelera, guardarPrecosteo: guardarPrecosteo, ftCambio: ftCambio, enhCambio: enhCambio,
+    snap: function (m) { return snap(m || 'Manual'); }, importarArchivo: importarArchivo, descargar: descargar, abrirPanel: abrirPanel, _t: { hall: function(){return hallazgo;}, rich: rich, planear: planear, normalizar: normalizar, escanearNube: escanearNube, mergeDeep: mergeDeep } };
+})();
+
+    </script>
     <script type="text/babel">
     /* @jsxRuntime classic */
     /* @jsx React.createElement */
@@ -651,6 +1147,7 @@ const EnhebradoTab = ({ structures }) => {
         setAllData(newAll);
         setGrid(newGrid);
         try { localStorage.setItem(EKEY, JSON.stringify(newAll)); } catch(e) {}
+        try { if (window.SWSAFE) window.SWSAFE.enhCambio(fid, newAll[fid]); } catch(e) {}
     };
 
     const ficha = structures.find(s => s.id === fichaId) || null;
@@ -1314,6 +1811,7 @@ const EnhebradoTab = ({ structures }) => {
             // si el link se abre en el computador del elaborador, borraría sus fichas locales
             if (window.__swantex_modo_aprobacion) return;
             try { localStorage.setItem(SKEY, JSON.stringify(data)); } catch(e){}
+            try { if (window.SWSAFE) window.SWSAFE.ftCambio(data); } catch(e){}
         };
         useEffect(()=>{
             // ── Detectar modo aprobación PRIMERO ──────────────────
@@ -1367,7 +1865,7 @@ const EnhebradoTab = ({ structures }) => {
                                 const snap = await FB.db.collection('fichas').doc(local[i].id).get();
                                 if (snap.exists) {
                                     const remote = restoreFromFirestore(snap.data());
-                                    updated.push(Object.assign({}, local[i], remote));
+                                    updated.push(window.SWSAFE ? window.SWSAFE.mergeFicha(local[i], remote) : Object.assign({}, local[i], remote));
                                 } else {
                                     updated.push(local[i]);
                                 }
@@ -1492,6 +1990,7 @@ const EnhebradoTab = ({ structures }) => {
         };
         const delFicha = (id) => {
             if (!window.confirm('¿Eliminar esta ficha FT-CIR-004?')) return;
+            try { if (window.SWSAFE) window.SWSAFE.snap('Antes de eliminar ficha FT-CIR-004'); } catch(e) {}
             const n = fichas.filter(f=>f.id!==id);
             setFichas(n); save(n);
             setActivaId(n.length>0 ? n[0].id : null);
@@ -3503,7 +4002,7 @@ const EnhebradoTab = ({ structures }) => {
                     cloudInitDoneRef.current = true;
                     setCloudSyncStatus('syncing');
                     Promise.all(structures.map((s) =>
-                        fb.db.collection('fichas').doc(s.id).set(s)
+                        (window.SWSAFE ? window.SWSAFE.guardarPrecosteo(s) : fb.db.collection('fichas').doc(s.id).set(s))
                             .catch((e) => console.warn('Error sincronizando precosteo inicial', s.id, e))
                     )).then(() => setCloudSyncStatus('synced'));
                 } else if (restantes > 0) {
@@ -3529,7 +4028,7 @@ const EnhebradoTab = ({ structures }) => {
                     const antes = prev.find((p) => p.id === s.id);
                     if (antes && JSON.stringify(antes) === JSON.stringify(s)) return;
                     huboCambios = true;
-                    fb.db.collection('fichas').doc(s.id).set(s)
+                    (window.SWSAFE ? window.SWSAFE.guardarPrecosteo(s) : fb.db.collection('fichas').doc(s.id).set(s))
                         .catch((e) => console.warn('Error guardando precosteo en la nube', s.id, e));
                 });
                 const idsActuales = {};
@@ -3537,7 +4036,7 @@ const EnhebradoTab = ({ structures }) => {
                 prev.forEach((p) => {
                     if (!idsActuales[p.id]) {
                         huboCambios = true;
-                        fb.db.collection('fichas').doc(p.id).delete().catch(() => {});
+                        (window.SWSAFE ? window.SWSAFE.papelera(p) : fb.db.collection('fichas').doc(p.id).delete().catch(() => {}));
                     }
                 });
                 if (huboCambios) {
@@ -3786,33 +4285,14 @@ const EnhebradoTab = ({ structures }) => {
             const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
             const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
             a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
+            try { localStorage.setItem('swsafe_lastdl', String(Date.now())); } catch(e) {}
         };
         const importBackup = e => {
+            // BLINDADO: ya no reemplaza nada. Fusiona con lo existente (SWSAFE),
+            // guarda copia previa y solo completa/agrega datos.
             const f = e.target.files[0]; if (!f) return;
-            const r = new FileReader();
-            r.onload = ev => {
-                try {
-                    const d = JSON.parse(ev.target.result);
-                    if (Array.isArray(d)) {
-                        // Old format v1 — only precosteos
-                        persist(d);
-                        alert('Backup restaurado: ' + d.length + ' fichas de precosteos.');
-                    } else if (d && d.version === 2) {
-                        // New format v2 — all data
-                        if (Array.isArray(d.precosteos)) persist(d.precosteos);
-                        if (Array.isArray(d.ft004) && d.ft004.length > 0) {
-                            localStorage.setItem('swantex_ft004_v2', JSON.stringify(d.ft004));
-                        }
-                        if (d.enhebrado && Object.keys(d.enhebrado).length > 0) {
-                            localStorage.setItem('swantex_enh_v2', JSON.stringify(d.enhebrado));
-                        }
-                        alert('Backup restaurado:\n• ' + (d.precosteos||[]).length + ' fichas de precosteos\n• ' + (d.ft004||[]).length + ' fichas FT-CIR-004\n• Enhebrado incluido\n\nRecarga la página para ver los datos.');
-                    } else {
-                        alert('Formato de backup no reconocido.');
-                    }
-                } catch(err) { alert('Archivo inválido: ' + err.message); }
-            };
-            r.readAsText(f); e.target.value='';
+            e.target.value = '';
+            if (window.SWSAFE) window.SWSAFE.importarArchivo(f);
         };
 
         /* ── PDF: jsPDF puro, 1 ficha = 1 hoja A4, sin html2canvas ── */
