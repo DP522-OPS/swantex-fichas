@@ -297,6 +297,24 @@
   }
   function unescKeys(input) { return JSON.parse(JSON.stringify(input).replace(/"_fb_([^"]+)_"\s*:/g, '"__$1__":')); }
   function leerLocal() { return { P: pj(rd(KP), []), F: pj(rd(KF), []), E: pj(rd(KE), {}) }; }
+  /* marcas de tiempo de última modificación (para saber qué versión es la más nueva) */
+  var seen = pj(rd('swsafe_mod'), {}), tMod = null;
+  function guardaSeen() { clearTimeout(tMod); tMod = setTimeout(function () { try { wr('swsafe_mod', JSON.stringify(seen)); } catch (e) {} }, 500); }
+  function touch(key, item) {
+    if (APROB || !item) return;
+    var h = hash(JSON.stringify(item)), r = seen[key];
+    if (!r) { seen[key] = { h: h, t: Date.now() }; guardaSeen(); }
+    else if (r.h !== h) { r.h = h; r.t = Date.now(); guardaSeen(); }
+  }
+  function baseline() {
+    if (APROB) return;
+    var L = leerLocal(), k;
+    (L.P || []).forEach(function (f) { if (f && f.id && !seen[f.id]) seen[f.id] = { h: hash(JSON.stringify(f)), t: 0, b: Date.now() }; });
+    (L.F || []).forEach(function (f) { if (f && f.id && !seen[f.id]) seen[f.id] = { h: hash(JSON.stringify(f)), t: 0, b: Date.now() }; });
+    for (k in (L.E || {})) if (!seen['ENH-' + k]) seen['ENH-' + k] = { h: hash(JSON.stringify(L.E[k])), t: 0, b: Date.now() };
+    guardaSeen();
+  }
+  function mapaMod() { var m = {}; for (var k in seen) if (seen[k].t > 0) m[k] = seen[k].t; return m; }
   function nEnh(E) { var n = 0; if (isObj(E)) for (var k in E) { if (rich(E[k] && E[k].grid) > 0) n++; } return n; }
   function counts(L) { return { P: (L.P || []).length, F: (L.F || []).length, E: nEnh(L.E) }; }
 
@@ -316,47 +334,84 @@
     }
     return pref === 'b' ? b : a;
   }
-  function mergeFicha(local, remote, pref) {   // por defecto (arranque) gana la nube en empates
+  function limpio(o) { var r = {}; for (var k in o) if (!META.test(k)) r[k] = o[k]; return r; }
+  function igual(a, b) { return JSON.stringify(limpio(a)) === JSON.stringify(limpio(b)); }
+  function sinAprob(f) { var o = {}; for (var k in f) if (APR.indexOf(k) < 0) o[k] = f[k]; return o; }
+  /* Arranque: la ficha local y la de la nube NUNCA se mezclan campo a campo (eso creaba
+     fichas "híbridas"): se queda UNA versión completa (la más reciente; si no se sabe, la más
+     completa). Solo las firmas/aprobaciones de las jefaturas se toman de donde estén más completas. */
+  function mergeFicha(local, remote) {
     if (!local) return remote; if (!remote) return local;
-    var m = mergeDeep(local, remote, pref === 'local' ? 'a' : 'b');
-    return m;
+    var tl = (seen[local.id] && seen[local.id].t) || 0, tr = remote._updatedAt || 0, base;
+    if (igual(sinAprob(local), sinAprob(remote))) base = remote;
+    else if (tl > 0 && tr > 0) base = tl > tr ? local : remote;
+    else base = rich(sinAprob(local)) > rich(sinAprob(remote)) ? local : remote;
+    var out = Object.assign({}, base);
+    var rl = 0, rr = 0; APR.forEach(function (k) { rl += rich(local[k]); rr += rich(remote[k]); });
+    var apr = rl > rr ? local : remote;
+    APR.forEach(function (k) { if (k in apr) out[k] = apr[k]; });
+    return out;
   }
-  function planear(loc, inc) {
-    var rep = { P: { add: 0, mej: 0 }, F: { add: 0, mej: 0 }, E: { add: 0, mej: 0 } };
+  function nombreItem(t, x, key) {
+    if (t === 'P') return (x.nombrePrenda || x.id) + (x.header && x.header.referencia ? ' · ' + x.header.referencia : '');
+    if (t === 'F') return 'Medidas: ' + (x.producto || x.lcc || x.id);
+    return 'Enhebrado ' + key;
+  }
+  function ladoDefecto(cur, x, tl, ti, b, auto) {
+    if (!auto) {
+      if (tl > 0 && ti > 0 && Math.abs(tl - ti) > 2000) return tl > ti ? 'loc' : 'inc';
+      if (tl === 0 && b > 0 && ti > b) return 'inc';     // la local no se ha tocado desde que se empezó a registrar; la otra sí
+      if (tl > 0 && ti === 0) return 'loc';              // archivo sin fecha: no se pisa lo que se editó recientemente
+    }
+    return rich(x) > rich(cur) ? 'inc' : 'loc';
+  }
+  function tiempoValido(t) { return t > 1e12 ? t : 0; }
+  /* planear: calcula qué traería `inc`. Lo nuevo se agrega; si el MISMO id existe en ambos con
+     contenido distinto es un "conflicto": se elige UNA versión completa (over[key] = 'inc'|'loc'),
+     por defecto la más reciente / más completa. Nunca se mezclan campos. */
+  function planear(loc, inc, over, auto) {
+    over = over || {};
+    var M = inc.M || {};
+    var rep = { P: { add: 0, dif: 0 }, F: { add: 0, dif: 0 }, E: { add: 0, dif: 0 } }, conf = [], adds = [], stamps = {};
     var out = { P: (loc.P || []).slice(), F: (loc.F || []).slice(), E: Object.assign({}, loc.E || {}) };
-    function lista(key) {
-      var idx = {}; out[key].forEach(function (x, i) { if (x && x.id) idx[x.id] = i; });
-      (inc[key] || []).forEach(function (x) {
+    function lista(t) {
+      var idx = {}; out[t].forEach(function (x, i) { if (x && x.id) idx[x.id] = i; });
+      (inc[t] || []).forEach(function (x) {
         if (!x || !x.id) return;
-        if (!(x.id in idx)) { out[key].push(x); idx[x.id] = out[key].length - 1; rep[key].add++; }
-        else {
-          var cur = out[key][idx[x.id]], m = mergeFicha(cur, x, 'local');
-          if (JSON.stringify(m) !== JSON.stringify(cur)) { out[key][idx[x.id]] = m; rep[key].mej++; }
-        }
+        var tI = tiempoValido(t === 'P' ? x.updatedAt : (M[x.id] || x._updatedAt));
+        if (!(x.id in idx)) { out[t].push(x); idx[x.id] = out[t].length - 1; rep[t].add++; adds.push(x.id); stamps[x.id] = { item: x, t: tI }; return; }
+        var cur = out[t][idx[x.id]];
+        if (igual(cur, x)) return;
+        var tL = tiempoValido(t === 'P' ? cur.updatedAt : (seen[x.id] && seen[x.id].t));
+        var lado = ladoDefecto(cur, x, tL, tI, (seen[x.id] && seen[x.id].b) || 0, auto), el = over[x.id] || lado;
+        conf.push({ key: x.id, t: t, nombre: nombreItem(t, x), lado: lado, elegido: el, rL: rich(cur), rI: rich(x), tL: tL, tI: tI });
+        if (el === 'inc') { out[t][idx[x.id]] = x; rep[t].dif++; stamps[x.id] = { item: x, t: tI }; }
       });
     }
     lista('P'); lista('F');
     for (var k in (inc.E || {})) {
       var v = inc.E[k]; if (!v || rich(v.grid) === 0) continue;
-      if (!out.E[k] || rich(out.E[k].grid) === 0) { out.E[k] = v; rep.E.add++; }
-      else {
-        var g = mergeDeep(out.E[k].grid || {}, v.grid || {}, 'a');
-        if (JSON.stringify(g) !== JSON.stringify(out.E[k].grid)) { out.E[k] = Object.assign({}, out.E[k], { grid: g }); rep.E.mej++; }
-      }
+      var key = 'ENH-' + k, cur = out.E[k], tI = tiempoValido(M[key]);
+      if (!cur || rich(cur.grid) === 0) { out.E[k] = v; rep.E.add++; adds.push(key); stamps[key] = { item: v, t: tI }; continue; }
+      if (JSON.stringify(cur.grid) === JSON.stringify(v.grid)) continue;
+      var tL = tiempoValido(seen[key] && seen[key].t), lado = ladoDefecto(cur.grid, v.grid, tL, tI, (seen[key] && seen[key].b) || 0, auto), el = over[key] || lado;
+      conf.push({ key: key, t: 'E', nombre: nombreItem('E', v, k), lado: lado, elegido: el, rL: rich(cur.grid), rI: rich(v.grid), tL: tL, tI: tI });
+      if (el === 'inc') { out.E[k] = v; rep.E.dif++; stamps[key] = { item: v, t: tI }; }
     }
-    return { rep: rep, merged: out, total: rep.P.add + rep.P.mej + rep.F.add + rep.F.mej + rep.E.add + rep.E.mej };
+    var tot = rep.P.add + rep.P.dif + rep.F.add + rep.F.dif + rep.E.add + rep.E.dif;
+    return { rep: rep, merged: out, total: tot, conf: conf, adds: adds, stamps: stamps };
   }
   function textoPlan(pl) {
     var r = pl.rep;
-    return 'Precosteos: ' + r.P.add + ' nuevos, ' + r.P.mej + ' completados\n' +
-           'Fichas FT-CIR-004 (medidas): ' + r.F.add + ' nuevas, ' + r.F.mej + ' completadas\n' +
-           'Enhebrados: ' + r.E.add + ' nuevos, ' + r.E.mej + ' completados';
+    return 'Precosteos: ' + r.P.add + ' nuevos, ' + r.P.dif + ' reemplazados por la otra versión\n' +
+           'Fichas FT-CIR-004 (medidas): ' + r.F.add + ' nuevas, ' + r.F.dif + ' reemplazadas\n' +
+           'Enhebrados: ' + r.E.add + ' nuevos, ' + r.E.dif + ' reemplazados';
   }
   function normalizar(d) {
     if (Array.isArray(d)) return { P: d, F: [], E: {} };
     if (d && typeof d === 'object') {
       if (d.version === 2 || d.precosteos || d.ft004 || d.enhebrado)
-        return { P: Array.isArray(d.precosteos) ? d.precosteos : [], F: Array.isArray(d.ft004) ? d.ft004 : [], E: isObj(d.enhebrado) ? d.enhebrado : {} };
+        return { P: Array.isArray(d.precosteos) ? d.precosteos : [], F: Array.isArray(d.ft004) ? d.ft004 : [], E: isObj(d.enhebrado) ? d.enhebrado : {}, M: isObj(d.mod) ? d.mod : {} };
       if (d.id && d.fibras) return { P: [d], F: [], E: {} };
       if (d.id && /^FT004-/.test(d.id)) return { P: [], F: [d], E: {} };
     }
@@ -461,6 +516,7 @@
     var d = db(); if (!d) return Promise.resolve();
     var ref = d.collection('fichas').doc(s.id);
     if (APROB) return ref.set(s);
+    touch(s.id, s);
     return ref.get().then(function (sn) {
       if (sn.exists) {
         var c = sn.data();
@@ -472,7 +528,6 @@
   }
   var pushed = pj(rd('swsafe_pushed'), {});
   function marcar(id, h) { pushed[id] = h; try { wr('swsafe_pushed', JSON.stringify(pushed)); } catch (e) {} }
-  function sinAprob(f) { var o = {}; for (var k in f) if (APR.indexOf(k) < 0) o[k] = f[k]; return o; }
   function pushFT(f, completo) {
     var d = db(); if (!d || APROB || !f || !f.id) return Promise.resolve();
     var ref = d.collection('fichas').doc(f.id), h = hash(JSON.stringify(f));
@@ -504,6 +559,7 @@
       var cadena = Promise.resolve();
       (data || []).forEach(function (f) {
         if (!f || !f.id) return;
+        touch(f.id, f);
         var h = hash(JSON.stringify(f)); if (pushed[f.id] === h) return;
         cadena = cadena.then(function () { return pushFT(f).catch(function (e) { console.warn('SWSAFE FT', f.id, e); }); });
       });
@@ -512,6 +568,7 @@
   function enhCambio(fid, v) {
     if (APROB) return;
     clearTimeout(tE);
+    touch('ENH-' + fid, v);
     tE = setTimeout(function () { pushEnh(fid, v).catch(function (e) { console.warn('SWSAFE ENH', fid, e); }); }, 1500);
   }
   function pushPendientes() {
@@ -556,10 +613,12 @@
   }
 
   /* ── aplicar (siempre con copia previa; nunca borra; luego recarga) ── */
-  function aplicar(merged, etiqueta, exacto) {
+  function aplicar(merged, etiqueta, stamps) {
     return snap('Antes de ' + etiqueta).then(function () {
       wr(KP, JSON.stringify(merged.P)); wr(KF, JSON.stringify(merged.F)); wr(KE, JSON.stringify(merged.E));
       lastHash = null;
+      var sk; for (sk in (stamps || {})) { var stI = stamps[sk]; seen[sk] = { h: hash(JSON.stringify(stI.item)), t: stI.t || 0 }; }
+      try { wr('swsafe_mod', JSON.stringify(seen)); } catch (e) {}
       var tareas = [];
       if (db()) {
         merged.P.forEach(function (s) { if (s && s.id) tareas.push(guardarPrecosteo(s).catch(function () {})); });
@@ -569,11 +628,43 @@
       return Promise.race([Promise.all(tareas), new Promise(function (r) { setTimeout(r, 12000); })]);
     }).then(function () { snap('Después de ' + etiqueta); setTimeout(function () { location.reload(); }, 700); });
   }
-  function fusionar(inc, etiqueta) {
-    var pl = planear(leerLocal(), inc);
-    if (pl.total === 0) { alert('No hay nada que recuperar de ' + etiqueta + ': lo que tienes aquí ya es igual o más completo.'); return Promise.resolve(); }
-    if (!confirm('Se va a FUSIONAR con ' + etiqueta + ' (no se borra nada de lo actual):\n\n' + textoPlan(pl) + '\n\nAntes se guarda una copia de seguridad automática. ¿Continuar?')) return Promise.resolve();
-    return aplicar(pl.merged, 'fusionar ' + etiqueta);
+  function resumenT(t) { return t ? fmtF(t) : 'fecha desconocida'; }
+  function dialogoConflictos(pl, etiqueta) {
+    return new Promise(function (res) {
+      var ov = document.createElement('div'); ov.id = 'swsafe-ov2'; ov.className = 'no-print';
+      var h = '<div id="swsafe-box"><h2>Hay fichas que existen en los dos lados con contenido distinto</h2>' +
+        '<div class="m">Al importar de ' + esc(etiqueta) + ' se elige <b>UNA versión completa</b> de cada ficha (no se mezclan campos). Ya viene marcada la más reciente o la más completa. Antes de aplicar se guarda una copia de lo actual, así que se puede deshacer.</div>' +
+        '<table style="margin-top:8px"><tr><th>Ficha</th><th>Versión actual (aquí)</th><th>Versión de ' + esc(etiqueta) + '</th></tr>';
+      pl.conf.forEach(function (c, i) {
+        var nm = 'sw-c' + i;
+        h += '<tr><td><b>' + esc(c.nombre) + '</b></td>' +
+          '<td><label><input type="radio" name="' + nm + '" value="loc"' + (c.lado === 'loc' ? ' checked' : '') + '> Mantener esta<br><span class="m">' + c.rL + ' datos · ' + esc(resumenT(c.tL)) + '</span></label></td>' +
+          '<td><label><input type="radio" name="' + nm + '" value="inc"' + (c.lado === 'inc' ? ' checked' : '') + '> Usar la importada<br><span class="m">' + c.rI + ' datos · ' + esc(resumenT(c.tI)) + '</span></label></td></tr>';
+      });
+      h += '</table><div style="margin-top:10px"><button data-b="ok">Aplicar mi selección</button> <button class="g" data-b="no">Cancelar</button></div></div>';
+      ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
+      ov.addEventListener('click', function (e) {
+        var b = e.target.closest ? e.target.closest('[data-b]') : null; if (!b) return;
+        if (b.getAttribute('data-b') === 'no') { ov.remove(); return res(null); }
+        var over = {};
+        pl.conf.forEach(function (c, i) { var r = ov.querySelector('input[name="sw-c' + i + '"]:checked'); over[c.key] = r ? r.value : c.lado; });
+        ov.remove(); res(over);
+      });
+      document.body.appendChild(ov);
+    });
+  }
+  function fusionar(inc, etiqueta, auto) {
+    var loc = leerLocal(), pl = planear(loc, inc, null, auto);
+    if (pl.total === 0 && !pl.conf.length) { alert('No hay nada que recuperar de ' + etiqueta + ': lo que tienes aquí ya es igual.'); return Promise.resolve(); }
+    var paso = Promise.resolve(null);
+    if (pl.conf.length && !auto) paso = dialogoConflictos(pl, etiqueta).then(function (over) { return over === null ? 'cancel' : over; });
+    return paso.then(function (over) {
+      if (over === 'cancel') return;
+      if (over) pl = planear(loc, inc, over, auto);
+      if (pl.total === 0) { alert('No se hizo ningún cambio: se mantuvo lo que ya tenías.'); return; }
+      if (!confirm('Se va a aplicar desde ' + etiqueta + ' (no se borra ninguna ficha):\n\n' + textoPlan(pl) + '\n\nAntes se guarda una copia de seguridad automática. ¿Continuar?')) return;
+      return aplicar(pl.merged, 'importar ' + etiqueta, pl.stamps);
+    });
   }
   function importarArchivo(file) {
     var r = new FileReader();
@@ -588,7 +679,7 @@
   }
   function descargar() {
     var L = leerLocal();
-    var blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), precosteos: L.P, ft004: L.F, enhebrado: L.E }, null, 2)], { type: 'application/json' });
+    var blob = new Blob([JSON.stringify({ version: 2, exportedAt: new Date().toISOString(), precosteos: L.P, ft004: L.F, enhebrado: L.E, mod: mapaMod() }, null, 2)], { type: 'application/json' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
     try { wr('swsafe_lastdl', String(Date.now())); } catch (e) {}
   }
@@ -658,8 +749,8 @@
     var el = document.getElementById('sw-nube'); if (!el || !cacheNube) return;
     var n = cacheNube.n, pl = planear(leerLocal(), cacheNube.inc);
     var h = '<div style="margin-top:6px">En la nube: <b>' + n.P + '</b> precosteos · <b>' + n.F + '</b> fichas FT-CIR-004 · <b>' + n.E + '</b> enhebrados · <b>' + n.T + '</b> copias en papelera.</div>';
-    h += pl.total ? '<div class="wa">Por recuperar: ' + esc(textoPlan(pl)).replace(/\n/g, ' · ') + '</div><button data-a="nubefus">Recuperar de la nube (fusionar)</button>'
-                  : '<div class="ok">✓ Lo que hay aquí ya es igual o más completo que la nube.</div>';
+    h += (pl.total || pl.conf.length) ? '<div class="wa">Por recuperar: ' + esc(textoPlan(pl)).replace(/\n/g, ' · ') + (pl.conf.length ? ' · ' + pl.conf.length + ' ficha(s) con versión distinta en la nube' : '') + '</div><button data-a="nubefus">Revisar y recuperar de la nube</button>'
+                  : '<div class="ok">✓ Lo que hay aquí ya es igual que en la nube.</div>';
     if (cacheNube.papelera.length) {
       h += '<div class="m" style="margin-top:8px">Papelera / versiones anteriores guardadas por el sistema:</div><table>';
       cacheNube.papelera.slice(0, 40).forEach(function (p, i) {
@@ -676,14 +767,11 @@
     if (a === 'descargar') { descargar(); return pintar(); }
     if (a === 'todas') {
       listarSnaps().then(function (all) {
-        var cur = leerLocal(), tareas = all.slice().reverse().map(function (m) { return leerSnap(m.id); });
+        var tareas = all.slice().reverse().map(function (m) { return leerSnap(m.id); });
         return Promise.all(tareas).then(function (bl) {
-          var acum = { P: (cur.P || []).slice(), F: (cur.F || []).slice(), E: Object.assign({}, cur.E || {}) };
-          bl.forEach(function (s) { if (!s) return; acum = planear(acum, { P: pj(s.P, []), F: pj(s.F, []), E: pj(s.E, {}) }).merged; });
-          var pl = planear(cur, acum);
-          if (pl.total === 0) return alert('No hay nada que recuperar de las copias: lo que tienes aquí ya es igual o más completo.');
-          if (!confirm('Se va a FUSIONAR lo mejor de ' + all.length + ' copias automáticas (no se borra nada de lo actual):\n\n' + textoPlan(pl) + '\n\nAntes se guarda una copia de seguridad. ¿Continuar?')) return;
-          return aplicar(pl.merged, 'fusionar todas las copias');
+          var acum = leerLocal();
+          bl.forEach(function (sn) { if (!sn) return; acum = planear(acum, { P: pj(sn.P, []), F: pj(sn.F, []), E: pj(sn.E, {}) }).merged; });
+          return fusionar(acum, 'todas las copias automáticas', true);
         });
       });
       return;
@@ -714,6 +802,8 @@
     if (t && t.getAttribute && t.getAttribute('data-a') === 'archivo' && t.files && t.files[0]) { importarArchivo(t.files[0]); t.value = ''; }
   });
 
+  baseline();
+
   /* ── arranque ── */
   function iniciar() {
     if (APROB) return;
@@ -732,9 +822,9 @@
           wr('swsafe_lastscan', String(Date.now()));
           cacheNube = r;
           var pl = planear(leerLocal(), r.inc); hallazgo = pl;
-          // ids con algo más completo/ausente en la nube: no se pisan sin que el usuario decida
-          ['P', 'F'].forEach(function (k) { (r.inc[k] || []).forEach(function (x) { var cur = (leerLocal()[k] || []).filter(function (y) { return y.id === x.id; })[0]; if (!cur || JSON.stringify(mergeFicha(cur, x, 'local')) !== JSON.stringify(cur)) excluir[x.id] = 1; }); });
-          for (var f in r.inc.E) { var loc = leerLocal().E[f]; if (!loc || rich(loc.grid) < rich(r.inc.E[f].grid)) excluir['ENH-' + f] = 1; }
+          // ids ausentes aquí o con versión de la nube preferida: no se pisan sin que el usuario decida
+          pl.adds.forEach(function (k) { excluir[k] = 1; });
+          pl.conf.forEach(function (c) { if (c.lado === 'inc') excluir[c.key] = 1; });
           pillAct(); seguir();
         }).catch(function () { seguir(); });
       }, 3500);
@@ -4325,22 +4415,8 @@ const EnhebradoTab = ({ structures }) => {
 
         /* ── Backup JSON ── */
         const exportBackup = () => {
-            // Include ALL data: F-CIR-002 precosteos + FT-CIR-004 medidas + enhebrado
-            let ft004Data = [];
-            let enhData   = {};
-            try { ft004Data = JSON.parse(localStorage.getItem('swantex_ft004_v2')||'[]'); } catch(e){}
-            try { enhData   = JSON.parse(localStorage.getItem('swantex_enh_v2')||'{}'); } catch(e){}
-            const backup = {
-                version:    2,
-                exportedAt: new Date().toISOString(),
-                precosteos: structures,
-                ft004:      ft004Data,
-                enhebrado:  enhData,
-            };
-            const blob = new Blob([JSON.stringify(backup, null, 2)], {type:'application/json'});
-            const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
-            a.download = 'Swantex_Backup_' + Date.now() + '.json'; a.click();
-            try { localStorage.setItem('swsafe_lastdl', String(Date.now())); } catch(e) {}
+            // Incluye precosteos + FT-CIR-004 + enhebrado + fechas de modificación (SWSAFE)
+            if (window.SWSAFE) window.SWSAFE.descargar();
         };
         const importBackup = e => {
             // BLINDADO: ya no reemplaza nada. Fusiona con lo existente (SWSAFE),
