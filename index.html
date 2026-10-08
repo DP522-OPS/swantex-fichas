@@ -1873,6 +1873,7 @@ const EnhebradoTab = ({ structures }) => {
                         }
                         setFichas(updated);
                         save(updated);
+                        setSyncTick(function(t){ return t + 1; });
                     } catch(e) { console.warn('Firebase sync error:', e); }
                 }, 1200);
             }
@@ -2150,36 +2151,52 @@ const EnhebradoTab = ({ structures }) => {
 
         const ficha = fichas.find(f=>f.id===activaId)||null;
 
-        /* ── Auto-sync Estructura de Hilos con F-CIR-002 (nunca queda desactualizada) ── */
+        /* ── Auto-sync Estructura de Hilos con F-CIR-002 (nunca queda desactualizada) ──
+           Un hilo cuenta si tiene título, lote, ítem o porcentaje (antes se descartaban
+           los que no tenían título y desaparecían de la ficha sin avisar). */
+        const PARTES_FT = ['PUÑO 1','PUÑO 2','CUERPO','PIERNA','ENTREPIERNA','CINTURA','PANTY','RODILLA','PIE','BOTA','TODA LA PRENDA'];
+        const hiloValido = (f) => !!(f && (f.titulo || f.lote || f.itemS || f.itemZ || (parseFloat(f.porcentaje) || 0) > 0));
+        const filasDePrecosteo = (ref) => (ref.fibras || []).filter(hiloValido).map(f => ({
+            parte:      PARTES_FT.indexOf(f.partePrenda) >= 0 ? f.partePrenda : 'CUERPO',
+            hilo:       f.titulo || f.nombre,
+            torsion:    f.itemZ ? 'S-Z' : (f.itemS ? 'S' : '-'),
+            lote:       f.lote || '',
+            proveedor:  f.proveedor || '',
+            tejido:     '',
+            obs:        '',
+            fromPrecosteo: true,
+        }));
+        const calcEstructura = (ref, actual) => {
+            const liveRows = filasDePrecosteo(ref);
+            const prevAuto   = (actual || []).filter(r => r.fromPrecosteo !== false);
+            const manualRows = (actual || []).filter(r => r.fromPrecosteo === false);
+            const keyOf = (arr) => arr.map(r => [r.hilo,r.torsion,r.lote,r.proveedor].join('§')).join('|');
+            if (keyOf(liveRows) === keyOf(prevAuto)) return null; // ya está al día
+            const usados = {};
+            const merged = liveRows.map(lr => {
+                let mi = -1;
+                for (let i = 0; i < prevAuto.length; i++) { if (!usados[i] && prevAuto[i].hilo === lr.hilo) { mi = i; break; } }
+                if (mi < 0) return lr;
+                usados[mi] = true;
+                const match = prevAuto[mi];
+                return Object.assign({}, lr, {
+                    parte:  match.parte  || lr.parte,
+                    tejido: match.tejido || '',
+                    obs:    match.obs    || '',
+                });
+            });
+            // filas manuales completamente vacías no aportan nada: se limpian
+            const manualUtiles = manualRows.filter(r => (r.hilo || r.lote || r.proveedor || r.obs || r.tejido));
+            return merged.concat(manualUtiles);
+        };
+        const [syncTick, setSyncTick] = useState(0);
         useEffect(() => {
             if (!ficha || !ficha.fichaRefId) return;
             const ref = structures.find(s => s.id === ficha.fichaRefId);
             if (!ref) return;
-            const fibs = (ref.fibras || []).filter(f => f.titulo);
-            const liveRows = fibs.map(f => ({
-                parte:      'CUERPO',
-                hilo:       f.titulo || f.nombre,
-                torsion:    f.itemZ ? 'S-Z' : (f.itemS ? 'S' : '-'),
-                lote:       f.lote || '',
-                proveedor:  f.proveedor || '',
-                tejido:     '',
-                obs:        '',
-                fromPrecosteo: true,
-            }));
-            const prevAuto   = (ficha.estructura || []).filter(r => r.fromPrecosteo !== false);
-            const manualRows = (ficha.estructura || []).filter(r => r.fromPrecosteo === false);
-            const keyOf = (arr) => arr.map(r => [r.hilo,r.torsion,r.lote,r.proveedor].join('§')).join('|');
-            if (keyOf(liveRows) === keyOf(prevAuto)) return; // ya está al día, no toca nada
-            const merged = liveRows.map(lr => {
-                const match = prevAuto.find(pr => pr.hilo === lr.hilo);
-                return match ? Object.assign({}, lr, {
-                    parte:  match.parte  || lr.parte,
-                    tejido: match.tejido || '',
-                    obs:    match.obs    || '',
-                }) : lr;
-            });
-            upd(ficha.id, 'estructura', merged.concat(manualRows));
-        }, [ficha && ficha.id, ficha && ficha.fichaRefId, structures]);
+            const nuevo = calcEstructura(ref, ficha.estructura);
+            if (nuevo) upd(ficha.id, 'estructura', nuevo);
+        }, [ficha && ficha.id, ficha && ficha.fichaRefId, structures, syncTick]);
         const tallasActivas = ficha
             ? TALLAS_DEF.filter(t=>ficha.tallasCheck[t])
               .concat(ficha.tallaExtra ? [ficha.tallaExtra] : [])
@@ -2524,11 +2541,49 @@ const EnhebradoTab = ({ structures }) => {
                                             border:'none',fontWeight:800,fontSize:10,cursor:'pointer'}}>+ Fila</button>
                                 </div>
                             </div>
-                            {ficha.fichaRefId && (
-                                <p style={{margin:'0',padding:'6px 16px',fontSize:9.5,color:'#34d399',background:'#0d1520',borderBottom:'1px solid #1f2937',fontWeight:700}}>
-                                    ✓ Composición sincronizada automáticamente con Precosteo (F-CIR-002). Si cambian los hilos allá, esta tabla se actualiza sola. "Tejido" y "Observaciones" de cada hilo, y cualquier fila agregada con "+ Fila", se conservan.
-                                </p>
-                            )}
+                            {ficha.fichaRefId && (() => {
+                                const ref = structures.find(s => s.id === ficha.fichaRefId);
+                                if (!ref) return (
+                                    <p style={{margin:'0',padding:'8px 16px',fontSize:10.5,color:'#fca5a5',background:'#2a1215',borderBottom:'1px solid #7f1d1d',fontWeight:800}}>
+                                        ⚠ El precosteo vinculado ya no existe en esta hoja (fue eliminado o cambió de id). Los hilos de abajo se conservan, pero NO se sincronizan. Vuelve a elegirlo en "Vincular a F-CIR-002".
+                                    </p>
+                                );
+                                const fibs = (ref.fibras || []).filter(hiloValido);
+                                const sinTitulo = fibs.filter(f => !f.titulo).length;
+                                const faltan = (nuevo => nuevo ? true : false)(calcEstructura(ref, ficha.estructura));
+                                const hermanos = structures.filter(s => s.id !== ref.id && s.nombrePrenda === ref.nombrePrenda);
+                                const clave = (h, l) => (h || '') + '§' + (l || '');
+                                const presentes = {};
+                                (ficha.estructura || []).forEach(r => { presentes[clave(r.hilo, r.lote)] = 1; });
+                                return (
+                                    <div style={{padding:'6px 16px',background:'#0d1520',borderBottom:'1px solid #1f2937',fontSize:10}}>
+                                        <div style={{color:faltan?'#fbbf24':'#34d399',fontWeight:700}}>
+                                            {faltan ? '⚠ La tabla no coincide con el precosteo vinculado.' : '✓ Sincronizada con el precosteo vinculado'}
+                                            {' '}({ref.nombrePrenda} · {ref.header && ref.header.referencia}) — {fibs.length} hilo(s) en el precosteo. Si cambian los hilos allá, esta tabla se actualiza sola. "Tejido", "Observaciones" y las filas agregadas con "+ Fila" se conservan.
+                                            <button onClick={() => {
+                                                const nuevo = calcEstructura(ref, ficha.estructura);
+                                                if (nuevo) upd(ficha.id, 'estructura', nuevo); else alert('Ya está al día con el precosteo ✓');
+                                            }} style={{marginLeft:8,padding:'2px 9px',borderRadius:6,background:'#2563eb',color:'#fff',border:'none',fontWeight:800,fontSize:10,cursor:'pointer'}}>🔄 Re-sincronizar ahora</button>
+                                        </div>
+                                        {sinTitulo > 0 && (
+                                            <div style={{color:'#fbbf24',marginTop:3}}>Hay {sinTitulo} hilo(s) en el precosteo sin título (se muestran con su nombre). Complétalos en la hoja de Precosteos.</div>
+                                        )}
+                                        {hermanos.map(h => {
+                                            const fh = (h.fibras || []).filter(hiloValido).filter(f => !presentes[clave(f.titulo || f.nombre, f.lote)]);
+                                            if (!fh.length) return null;
+                                            return (
+                                                <div key={h.id} style={{marginTop:3,color:'#93c5fd'}}>
+                                                    Otro precosteo del mismo producto ({h.header && h.header.referencia}{h.header && h.header.talla ? ' · ' + h.header.talla : ''}) tiene {fh.length} hilo(s) que no están aquí:
+                                                    <button onClick={() => {
+                                                        const filas = fh.map(f => ({parte:'CUERPO',hilo:f.titulo||f.nombre,torsion:f.itemZ?'S-Z':(f.itemS?'S':'-'),lote:f.lote||'',proveedor:f.proveedor||'',tejido:'',obs:'',fromPrecosteo:false}));
+                                                        upd(ficha.id, 'estructura', (ficha.estructura || []).concat(filas));
+                                                    }} style={{marginLeft:8,padding:'2px 9px',borderRadius:6,background:'#334155',color:'#fff',border:'none',fontWeight:800,fontSize:10,cursor:'pointer'}}>+ Agregarlos</button>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                );
+                            })()}
                             <div style={{overflowX:'auto'}}>
                                 <table style={{width:'100%',borderCollapse:'collapse',fontSize:11}}>
                                     <thead>
