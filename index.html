@@ -512,7 +512,7 @@
     if (APROB) return del();
     return respaldo(p.id, p, 'eliminado').then(del);
   }
-  function guardarPrecosteo(s) {      // nunca pisa una versión más completa sin guardarla antes
+  function guardarPrecosteo0(s) {      // nunca pisa una versión más completa sin guardarla antes
     var d = db(); if (!d) return Promise.resolve();
     var ref = d.collection('fichas').doc(s.id);
     if (APROB) return ref.set(s);
@@ -525,6 +525,10 @@
       }
       return ref.set(s);
     });
+  }
+  function guardarPrecosteo(s) {
+    var h = hash(JSON.stringify(s));
+    return guardarPrecosteo0(s).then(function (r) { if (db() && !APROB) marcar(s.id, h); return r; });
   }
   var pushed = pj(rd('swsafe_pushed'), {});
   function marcar(id, h) { pushed[id] = h; try { wr('swsafe_pushed', JSON.stringify(pushed)); } catch (e) {} }
@@ -613,13 +617,28 @@
   }
 
   /* ── aplicar (siempre con copia previa; nunca borra; luego recarga) ── */
-  function aplicar(merged, etiqueta, stamps) {
+  function quitarDeNube(quitar) {
+    var d = db(); if (!d || !quitar) return [];
+    var t = [];
+    (quitar.P || []).forEach(function (p) { t.push(papelera(p)); });
+    (quitar.F || []).forEach(function (f) { t.push(respaldo(f.id, f, 'quitada al deshacer').then(function () { return d.collection('fichas').doc(f.id).delete(); }).catch(function () {})); });
+    for (var k in (quitar.E || {})) (function (key, v) { t.push(respaldo('ENH-' + key, v, 'quitado al deshacer').then(function () { return d.collection('fichas').doc('ENH-' + key).delete(); }).catch(function () {})); })(k, quitar.E[k]);
+    return t;
+  }
+  function diferencia(cur, nuevo) {
+    var q = { P: [], F: [], E: {} }, ids = {};
+    (nuevo.P || []).forEach(function (x) { ids[x.id] = 1; }); (cur.P || []).forEach(function (x) { if (x && !ids[x.id]) q.P.push(x); });
+    ids = {}; (nuevo.F || []).forEach(function (x) { ids[x.id] = 1; }); (cur.F || []).forEach(function (x) { if (x && !ids[x.id]) q.F.push(x); });
+    for (var k in (cur.E || {})) if (!(nuevo.E || {})[k]) q.E[k] = cur.E[k];
+    return q;
+  }
+  function aplicar(merged, etiqueta, stamps, quitar) {
     return snap('Antes de ' + etiqueta).then(function () {
       wr(KP, JSON.stringify(merged.P)); wr(KF, JSON.stringify(merged.F)); wr(KE, JSON.stringify(merged.E));
       lastHash = null;
       var sk; for (sk in (stamps || {})) { var stI = stamps[sk]; seen[sk] = { h: hash(JSON.stringify(stI.item)), t: stI.t || 0 }; }
       try { wr('swsafe_mod', JSON.stringify(seen)); } catch (e) {}
-      var tareas = [];
+      var tareas = quitarDeNube(quitar);
       if (db()) {
         merged.P.forEach(function (s) { if (s && s.id) tareas.push(guardarPrecosteo(s).catch(function () {})); });
         merged.F.forEach(function (f) { if (f && f.id) tareas.push(pushFT(f, true).catch(function () {})); });
@@ -666,16 +685,105 @@
       return aplicar(pl.merged, 'importar ' + etiqueta, pl.stamps);
     });
   }
+  function grupos(inc, loc) {
+    var idsP = {}, locP = {}, locF = {}, gs = [];
+    (inc.P || []).forEach(function (p) { if (p && p.id) idsP[p.id] = 1; });
+    (loc.P || []).forEach(function (x) { locP[x.id] = x; }); (loc.F || []).forEach(function (x) { locF[x.id] = x; });
+    (inc.P || []).forEach(function (p) {
+      if (!p || !p.id) return;
+      var fts = (inc.F || []).filter(function (f) { return f && f.fichaRefId === p.id; });
+      var e = (inc.E || {})[p.id], eOk = e && rich(e.grid) > 0;
+      var todoIgual = locP[p.id] && igual(locP[p.id], p) &&
+        fts.every(function (f) { return locF[f.id] && igual(locF[f.id], f); }) &&
+        (!eOk || (loc.E && loc.E[p.id] && JSON.stringify(loc.E[p.id].grid) === JSON.stringify(e.grid)));
+      gs.push({ p: p, fts: fts, e: eOk ? e : null, estado: todoIgual ? 'igual' : (locP[p.id] ? 'copia' : 'nueva') });
+    });
+    (inc.F || []).forEach(function (f) {
+      if (!f || !f.id || (f.fichaRefId && idsP[f.fichaRefId])) return;
+      gs.push({ p: null, fts: [f], e: null, estado: locF[f.id] ? (igual(locF[f.id], f) ? 'igual' : 'copia') : 'nueva' });
+    });
+    return gs;
+  }
+  function traer(sel) {
+    var loc = leerLocal(), out = { P: loc.P.slice(), F: loc.F.slice(), E: Object.assign({}, loc.E) }, stamps = {}, n = 0, tick = Date.now();
+    function existeP(id) { return out.P.some(function (x) { return x.id === id; }); }
+    sel.forEach(function (g) {
+      if (g.estado === 'igual') return;
+      var map = {};
+      if (g.p) {
+        var np = g.p;
+        if (existeP(np.id)) {
+          var nid = 'SW-' + (tick + (n++)).toString(36).toUpperCase();
+          map[np.id] = nid; np = Object.assign({}, np, { id: nid, nombrePrenda: (np.nombrePrenda || '') + ' (importada)' });
+        }
+        out.P.push(np); stamps[np.id] = { item: np, t: tiempoValido(np.updatedAt) };
+        if (g.e) { out.E[np.id] = g.e; stamps['ENH-' + np.id] = { item: g.e, t: 0 }; }
+      }
+      g.fts.forEach(function (f) {
+        var nf = f;
+        if (map[f.fichaRefId]) nf = Object.assign({}, nf, { fichaRefId: map[f.fichaRefId] });
+        var ya = out.F.filter(function (x) { return x.id === nf.id; })[0];
+        if (ya) { if (igual(ya, nf)) return; nf = Object.assign({}, nf, { id: 'FT004-' + (tick + (n++)) }); }
+        out.F.push(nf); stamps[nf.id] = { item: nf, t: 0 };
+      });
+    });
+    return aplicar(out, 'importar fichas', stamps);
+  }
+  function dialogoImport(inc, nombre) {
+    var gs = grupos(inc, leerLocal());
+    if (!gs.length) { alert('Ese archivo no trae fichas.'); return; }
+    var ov = document.createElement('div'); ov.id = 'swsafe-ov2'; ov.className = 'no-print';
+    var h = '<div id="swsafe-box"><h2>Fichas dentro de «' + esc(nombre) + '»</h2>' +
+      '<div class="m">Marca las que quieres traer. Cada una llega <b>completa y separada</b> (con su precosteo, medidas y enhebrado) y <b>no se mezcla ni cambia ninguna</b> de las que ya tienes.</div><table style="margin-top:8px">';
+    gs.forEach(function (g, i) {
+      var p = g.p, f = g.fts[0];
+      var nm = p ? (p.nombrePrenda || p.id) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : '') + (p.header && p.header.talla ? ' · ' + p.header.talla : '') : 'Medidas: ' + (f.producto || f.lcc || f.id);
+      var tag = (p ? '<span class="ok">precosteo ✓</span> ' : '') + (g.fts.length ? '<span class="ok">medidas ✓</span> ' : '') + (g.e ? '<span class="ok">enhebrado ✓</span>' : '');
+      var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya tienes otra con el mismo código: se traería como copia aparte</span>';
+      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'nueva' ? ' checked' : '') + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
+    });
+    h += '</table><div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="no">Cancelar</button></div></div>';
+    ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
+    ov.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('[data-b]') : null; if (!b) return;
+      if (b.getAttribute('data-b') === 'no') return ov.remove();
+      var sel = []; ov.querySelectorAll('input[data-i]').forEach(function (c) { if (c.checked) sel.push(gs[parseInt(c.getAttribute('data-i'), 10)]); });
+      if (!sel.length) return alert('No marcaste ninguna ficha.');
+      ov.remove(); traer(sel);
+    });
+    document.body.appendChild(ov);
+  }
   function importarArchivo(file) {
     var r = new FileReader();
     r.onload = function (ev) {
       try {
         var inc = normalizar(JSON.parse(ev.target.result));
         if (!inc) { alert('Formato de backup no reconocido.'); return; }
-        fusionar(inc, 'el archivo ' + (file.name || 'JSON'));
+        dialogoImport(inc, file.name || 'archivo');
       } catch (e) { alert('Archivo inválido: ' + e.message); }
     };
     r.readAsText(file);
+  }
+  function deshacerImport() {
+    listarSnaps().then(function (all) {
+      var m = all.filter(function (x) { return /^Antes de importar/.test(x.motivo); })[0];
+      if (!m) return alert('No hay ninguna importación reciente para deshacer.');
+      leerSnap(m.id).then(function (sn) {
+        if (!sn) return alert('Copia no encontrada.');
+        var inc = { P: pj(sn.P, []), F: pj(sn.F, []), E: pj(sn.E, {}) };
+        if (!confirm('Vas a volver a como estaba ANTES de importar (' + fmtF(m.t) + '):\n' + m.cP + ' precosteos · ' + m.cF + ' fichas de medidas · ' + m.cE + ' enhebrados.\n\nLo que trajo esa importación se quita (queda guardado en la papelera). Antes se guarda una copia de lo de ahora.\n\n¿Continuar?')) return;
+        aplicar(inc, 'deshacer importación', null, diferencia(leerLocal(), inc));
+      });
+    });
+  }
+  function guardarTodoNube() {
+    if (!db()) return alert('Todavía no hay conexión con la nube. Revisa el internet e inténtalo de nuevo.');
+    var L = leerLocal(), t = [];
+    excluir = {};
+    (L.P || []).forEach(function (s) { if (s && s.id) t.push(guardarPrecosteo(s).catch(function () {})); });
+    (L.F || []).forEach(function (f) { if (f && f.id) t.push(pushFT(f).catch(function () {})); });
+    for (var k in (L.E || {})) if (L.E[k] && rich(L.E[k].grid) > 0) t.push(pushEnh(k, L.E[k]).catch(function () {}));
+    return Promise.all(t).then(function () { pillAct(); pintar(); alert('Listo: todo quedó guardado en la nube ✓'); });
   }
   function descargar() {
     var L = leerLocal();
@@ -685,15 +793,25 @@
   }
 
   /* ── interfaz: botón flotante + centro de recuperación ── */
-  var pill = null, hallazgo = null;
+  var pill = null, hallazgo = null, pendDesde = 0, iniT = Date.now();
+  function pendientes() {
+    var L = leerLocal(), n = 0, k;
+    (L.P || []).forEach(function (x) { if (x && x.id && pushed[x.id] !== hash(JSON.stringify(x))) n++; });
+    (L.F || []).forEach(function (x) { if (x && x.id && pushed[x.id] !== hash(JSON.stringify(x))) n++; });
+    for (k in (L.E || {})) if (rich(L.E[k].grid) > 0 && pushed['ENH-' + k] !== hash(JSON.stringify(L.E[k]))) n++;
+    return n;
+  }
   function pillAct() {
     if (!pill) return;
-    var dl = parseInt(rd('swsafe_lastdl') || '0', 10);
-    var alerta = hallazgo && hallazgo.total > 0;
-    pill.style.background = alerta ? '#b45309' : '#065f46';
-    pill.innerHTML = alerta ? '⚠ Hay datos por recuperar — clic aquí'
-      : '🛡 Protegido · ' + nSnaps + ' copias' + (lastSnapT ? ' · ' + fmtF(lastSnapT).slice(11) : '');
-    pill.title = 'Centro de recuperación y protección de datos' + (dl ? '\nÚltimo backup descargado: ' + fmtF(dl) : '\nNunca has descargado un backup .json');
+    var bg = '#065f46', tx;
+    if (!db()) { bg = Date.now() - iniT > 30000 ? '#b45309' : '#334155'; tx = Date.now() - iniT > 30000 ? '⚠ Sin conexión a la nube' : '☁ Conectando con la nube…'; }
+    else {
+      var n = pendientes();
+      if (n === 0) { pendDesde = 0; tx = '☁ Todo guardado en la nube ✓'; }
+      else { if (!pendDesde) pendDesde = Date.now(); if (Date.now() - pendDesde < 25000) { bg = '#1d4ed8'; tx = '☁ Guardando en la nube…'; } else { bg = '#b45309'; tx = '⚠ ' + n + ' sin guardar en la nube — clic aquí'; } }
+    }
+    pill.style.background = bg; pill.textContent = tx;
+    pill.title = 'Mis fichas: copias y recuperación (clic)';
   }
   var CSS = '#swsafe-pill{position:fixed;left:12px;bottom:12px;z-index:9998;color:#fff;border:0;border-radius:20px;padding:7px 14px;font:700 12px system-ui,sans-serif;cursor:pointer;box-shadow:0 2px 10px #0008}' +
     '#swsafe-ov{position:fixed;inset:0;z-index:9999;background:#000b;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px}' +
@@ -701,12 +819,12 @@
     '#swsafe-box h2{margin:0 0 4px;font-size:18px}#swsafe-box h3{margin:18px 0 6px;font-size:13px;color:#7dd3fc;text-transform:uppercase;letter-spacing:.05em}' +
     '#swsafe-box table{width:100%;border-collapse:collapse}#swsafe-box td,#swsafe-box th{padding:5px 8px;border-bottom:1px solid #1e293b;text-align:left;font-size:12px}' +
     '#swsafe-box button,#swsafe-box label.b{background:#2563eb;color:#fff;border:0;border-radius:8px;padding:6px 11px;font:700 12px system-ui;cursor:pointer;margin:2px 3px 2px 0;display:inline-block}' +
-    '#swsafe-box button.g{background:#334155}#swsafe-box button.r{background:#b91c1c}#swsafe-box .m{color:#94a3b8;font-size:12px}#swsafe-box .ok{color:#6ee7b7}#swsafe-box .wa{color:#fbbf24}';
+    '#swsafe-box button.g{background:#334155}#swsafe-box button.r{background:#b91c1c}#swsafe-box .big{font-size:14px!important;padding:11px 16px!important;margin:6px 8px 6px 0!important}#swsafe-box .m{color:#94a3b8;font-size:12px}#swsafe-box .ok{color:#6ee7b7}#swsafe-box .wa{color:#fbbf24}';
   function crearPill() {
     if (APROB || pill) return;
     var st = document.createElement('style'); st.textContent = CSS + '@media print{#swsafe-pill,#swsafe-ov{display:none!important}}'; document.head.appendChild(st);
     pill = document.createElement('button'); pill.id = 'swsafe-pill'; pill.className = 'no-print';
-    pill.onclick = abrirPanel; document.body.appendChild(pill); pillAct();
+    pill.onclick = abrirPanel; document.body.appendChild(pill); pillAct(); setInterval(pillAct, 4000);
   }
   function cerrarPanel() { var o = document.getElementById('swsafe-ov'); if (o) o.remove(); }
   var cacheNube = null, cacheSnaps = {};
@@ -725,13 +843,18 @@
     var huF = (L.F || []).filter(function (f) { return f.fichaRefId && !idsP[f.fichaRefId]; }).length;
     var huE = Object.keys(L.E || {}).filter(function (k) { return rich(L.E[k].grid) > 0 && !idsP[k]; }).length;
     var dl = parseInt(rd('swsafe_lastdl') || '0', 10);
-    var h = '<div style="display:flex;justify-content:space-between;gap:8px"><div><h2>🛟 Centro de recuperación y protección</h2><div class="m">Todo lo que haces aquí FUSIONA: nunca borra lo que ya tienes y siempre guarda una copia antes.</div></div><button class="g" data-a="cerrar">Cerrar ✕</button></div>';
-    h += '<h3>1 · Lo que hay ahora en este navegador</h3><div>Precosteos: <b>' + c.P + '</b> · Fichas FT-CIR-004 (medidas): <b>' + c.F + '</b> · Enhebrados con datos: <b>' + c.E + '</b></div>';
-    if (huF || huE) h += '<div class="wa">⚠ ' + huF + ' ficha(s) FT-CIR-004 y ' + huE + ' enhebrado(s) apuntan a un precosteo que ya no existe aquí (ids distintos). Los datos están guardados, pero desvinculados.</div>';
-    h += '<div class="m">Backup .json descargado por última vez: ' + (dl ? fmtF(dl) : '<span class="wa">nunca</span>') + ' &nbsp; <button data-a="descargar">⬇ Descargar copia completa ahora</button></div>';
-    h += '<h3>2 · Copias automáticas de este navegador</h3><div><button data-a="todas">⭐ Recuperar lo mejor de TODAS las copias (recomendado)</button> <span class="m">junta lo más completo de cada copia, sin borrar nada</span></div><div id="sw-snaps" class="m">Cargando…</div>';
-    h += '<h3>3 · Nube (Firestore)</h3><div class="m">Busca fichas, medidas y enhebrados guardados en la nube y los copias aquí si faltan o están más completos.</div><button data-a="nube">☁ Buscar en la nube</button><div id="sw-nube"></div>';
-    h += '<h3>4 · Desde un archivo de backup (.json)</h3><label class="b">📂 Elegir archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label> <span class="m">Se fusiona con lo actual; no reemplaza nada.</span>';
+    var n = pendientes();
+    var h = '<div style="display:flex;justify-content:space-between;gap:8px"><div><h2>🛟 Mis fichas: copias y recuperación</h2><div class="m">Todo lo que haces se guarda solo en la nube. Lo que traes de un archivo llega como ficha separada: <b>nunca se mezcla</b> con las que ya tienes.</div></div><button class="g" data-a="cerrar">Cerrar ✕</button></div>';
+    h += '<div style="margin-top:10px">Ahora tienes: <b>' + c.P + '</b> precosteos · <b>' + c.F + '</b> fichas de medidas · <b>' + c.E + '</b> enhebrados &nbsp;·&nbsp; ' + (!db() ? '<span class="wa">sin conexión a la nube</span>' : n ? '<span class="wa">' + n + ' sin guardar en la nube</span>' : '<span class="ok">todo guardado en la nube ✓</span>') + '</div>';
+    h += '<div style="margin-top:12px"><label class="b big">📂 Traer fichas desde un archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label>' +
+         '<button class="big" data-a="deshacer">↩ Deshacer la última importación</button>' +
+         '<button class="big" data-a="guardarnube">☁ Guardar todo en la nube ahora</button>' +
+         '<button class="big g" data-a="descargar">⬇ Descargar copia (.json)</button></div>';
+    h += '<div class="m">Último .json descargado: ' + (dl ? fmtF(dl) : '<span class="wa">nunca</span>') + '</div>';
+    h += '<details style="margin-top:18px"><summary class="m" style="cursor:pointer">Opciones avanzadas (copias automáticas, nube, papelera)</summary>';
+    h += '<h3>Copias automáticas de este navegador</h3><div><button data-a="todas">⭐ Recuperar lo mejor de TODAS las copias</button></div><div id="sw-snaps" class="m">Cargando…</div>';
+    h += '<h3>Nube</h3><button data-a="nube">☁ Buscar en la nube</button><div id="sw-nube"></div>';
+    h += '</details>';
     box.innerHTML = h;
     listarSnaps().then(function (all) {
       var el = document.getElementById('sw-snaps'); if (!el) return;
@@ -765,6 +888,8 @@
     var a = b.getAttribute('data-a'), id = parseInt(b.getAttribute('data-id') || '0', 10);
     if (a === 'cerrar') return cerrarPanel();
     if (a === 'descargar') { descargar(); return pintar(); }
+    if (a === 'deshacer') return deshacerImport();
+    if (a === 'guardarnube') return guardarTodoNube();
     if (a === 'todas') {
       listarSnaps().then(function (all) {
         var tareas = all.slice().reverse().map(function (m) { return leerSnap(m.id); });
@@ -793,7 +918,7 @@
         }
         if (a === 'snapfus') return fusionar(inc, 'la copia automática');
         if (!confirm('RESTAURAR EXACTA: lo que hay ahora será reemplazado por esta copia (' + counts(inc).P + ' precosteos, ' + counts(inc).F + ' FT, ' + counts(inc).E + ' enhebrados).\nAntes se guarda una copia de lo actual, así que puedes deshacerlo.\n\n¿Continuar?')) return;
-        aplicar(inc, 'restauración exacta');
+        aplicar(inc, 'restauración exacta', null, diferencia(leerLocal(), inc));
       });
     }
   });
@@ -822,9 +947,6 @@
           wr('swsafe_lastscan', String(Date.now()));
           cacheNube = r;
           var pl = planear(leerLocal(), r.inc); hallazgo = pl;
-          // ids ausentes aquí o con versión de la nube preferida: no se pisan sin que el usuario decida
-          pl.adds.forEach(function (k) { excluir[k] = 1; });
-          pl.conf.forEach(function (c) { if (c.lado === 'inc') excluir[c.key] = 1; });
           pillAct(); seguir();
         }).catch(function () { seguir(); });
       }, 3500);
