@@ -479,6 +479,9 @@
     }).then(function (id) { lastSnapT = meta.t; return podar().then(function () { pillAct(); return id; }); })
       .catch(function (e) { console.warn('SWSAFE snap', e); lastHash = null; return null; });
   }
+  function snapSeguro(m) {      // la copia previa nunca puede bloquear una acción (si IndexedDB tarda, se sigue a los 4 s)
+    return Promise.race([snap(m).catch(function () { return null; }), new Promise(function (r) { setTimeout(function () { r(null); }, 4000); })]);
+  }
   function listarSnaps() {
     return idbDo(['meta'], 'readonly', function (t, out) { var r = t.objectStore('meta').getAll(); r.onsuccess = function () { out.v = r.result.sort(function (a, b) { return b.t - a.t; }); }; }).catch(function () { return []; });
   }
@@ -526,7 +529,10 @@
     var js; try { js = JSON.stringify(data); } catch (e) { return Promise.resolve(); }
     return d.collection('fichas').doc('PAPELERA-' + docId + '-' + now.toString(36)).set({ tipo: 'papelera', origen: docId, motivo: motivo, json: js, _deletedAt: now }).catch(function () {});
   }
-  function papelera(p) {              // en vez de borrar de la nube, se guarda copia recuperable
+  var arch = pj(rd('swsafe_arch'), {});          // precosteos TERMINADOS: se quedan en la nube para SWAN2
+  function guardaArch() { try { wr('swsafe_arch', JSON.stringify(arch)); } catch (e) {} }
+  function papelera(p) {
+    if (arch[p.id]) return Promise.resolve();      // terminado: no se borra de la nube              // en vez de borrar de la nube, se guarda copia recuperable
     var d = db(); if (!d) return Promise.resolve();
     var del = function () { return d.collection('fichas').doc(p.id).delete().catch(function () {}); };
     if (APROB) return del();
@@ -653,7 +659,7 @@
     return q;
   }
   function aplicar(merged, etiqueta, stamps, quitar) {
-    return snap('Antes de ' + etiqueta).then(function () {
+    return snapSeguro('Antes de ' + etiqueta).then(function () {
       wr(KP, JSON.stringify(merged.P)); wr(KF, JSON.stringify(merged.F)); wr(KE, JSON.stringify(merged.E));
       lastHash = null;
       var sk; for (sk in (stamps || {})) { var stI = stamps[sk]; seen[sk] = { h: hash(JSON.stringify(stI.item)), t: stI.t || 0 }; }
@@ -806,6 +812,85 @@
     if (!confirm('Se van a quitar de la lista:\n• ' + nE + ' enhebrado(s) cuyo precosteo ya no existe\n• ' + an.badF.length + ' ficha(s) de medidas sueltas o repetidas\n\nNo se pierde nada para siempre: quedan en la papelera y en una copia automática.\n\n¿Limpiar?')) return;
     return aplicar(an.keep, 'limpiar basura', null, { P: [], F: an.badF, E: an.badE });
   }
+  /* ── Terminar proyecto / empezar nuevo ──
+     Un proyecto = 1 precosteo + su ficha de medidas + su enhebrado. Al terminarlo se confirma que
+     TODO está en la nube (SWAN2 sigue viendo el precosteo), se deja una ficha-índice y el proyecto
+     sale de la lista de trabajo. Se puede reabrir desde la nube. */
+  function rango(pref) {
+    var d = db(), FP = firebase.firestore.FieldPath;
+    return d.collection('fichas').where(FP.documentId(), '>=', pref).where(FP.documentId(), '<', pref + '\uf8ff').get().then(function (sn) {
+      var a = []; sn.forEach(function (x) { a.push({ id: x.id, data: x.data() }); }); return a;
+    });
+  }
+  function terminarProyecto(pid, nuevoDespues) {
+    var d = db(); if (!d) return alert('No hay conexión con la nube. Para terminar un proyecto tiene que quedar guardado en la nube primero.');
+    var L = leerLocal(), p = (L.P || []).filter(function (x) { return x.id === pid; })[0];
+    if (!p) return alert('No encontré ese proyecto.');
+    var fts = (L.F || []).filter(function (f) { return f.fichaRefId === pid; });
+    var e = L.E && L.E[pid] && rich(L.E[pid].grid) > 0 ? L.E[pid] : null;
+    var nom = (p.nombrePrenda || pid) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : '');
+    if (!confirm('¿Terminar el proyecto «' + nom + '»?\n\n• Se guarda completo en la nube (precosteo, ' + fts.length + ' ficha(s) de medidas' + (e ? ', enhebrado' : ', sin enhebrado') + ').\n• SWAN2 sigue viendo el precosteo.\n• Sale de tu lista de trabajo y se puede reabrir desde "Proyectos terminados".' + (nuevoDespues ? '\n• Después se abre un proyecto nuevo.' : ''))) return;
+    snapSeguro('Antes de terminar proyecto ' + nom).then(function () {
+      var t = [guardarPrecosteo(p)];
+      fts.forEach(function (f) { t.push(pushFT(f)); });
+      if (e) t.push(pushEnh(pid, e));
+      return Promise.all(t);
+    }).then(function () {
+      var chk = [d.collection('fichas').doc(pid).get()];
+      fts.forEach(function (f) { chk.push(d.collection('fichas').doc(f.id).get()); });
+      if (e) chk.push(d.collection('fichas').doc('ENH-' + pid).get());
+      return Promise.all(chk);
+    }).then(function (rs) {
+      if (!rs.every(function (x) { return x.exists; })) throw new Error('No se pudo confirmar en la nube');
+      return d.collection('fichas').doc('PROYECTO-' + pid).set({ tipo: 'proyecto_terminado', pid: pid, nombre: p.nombrePrenda || pid, referencia: (p.header && p.header.referencia) || '', talla: (p.header && p.header.talla) || '', ftIds: fts.map(function (f) { return f.id; }), conEnhebrado: !!e, _closedAt: Date.now() });
+    }).then(function () {
+      arch[pid] = Date.now(); guardaArch();
+      var ids = {}; fts.forEach(function (f) { ids[f.id] = 1; });
+      var E2 = Object.assign({}, L.E || {}); delete E2[pid];
+      wr(KP, JSON.stringify((L.P || []).filter(function (x) { return x.id !== pid; })));
+      wr(KF, JSON.stringify((L.F || []).filter(function (f) { return !ids[f.id]; })));
+      wr(KE, JSON.stringify(E2));
+      if (nuevoDespues) { try { sessionStorage.setItem('swsafe_nuevo', '1'); } catch (er) {} }
+      lastHash = null; snap('Después de terminar proyecto ' + nom);
+      setTimeout(function () { location.reload(); }, 600);
+    }).catch(function (er) { alert('No se terminó el proyecto (no se quitó nada): ' + (er.message || er)); });
+  }
+  function reabrirProyecto(pid) {
+    var d = db(); if (!d) return alert('No hay conexión con la nube.');
+    d.collection('fichas').doc('PROYECTO-' + pid).get().then(function (m) {
+      if (!m.exists) throw new Error('El proyecto ya no está en la lista');
+      var meta = m.data(), t = [d.collection('fichas').doc(pid).get()];
+      (meta.ftIds || []).forEach(function (id) { t.push(d.collection('fichas').doc(id).get()); });
+      t.push(d.collection('fichas').doc('ENH-' + pid).get());
+      return Promise.all(t).then(function (rs) {
+        if (!rs[0].exists) throw new Error('El precosteo de ese proyecto ya no está en la nube');
+        var p = rs[0].data(), fts = [], e = null, i;
+        for (i = 1; i < rs.length - 1; i++) if (rs[i].exists) { var f = unescKeys(rs[i].data()); f.id = f.id || rs[i].id; fts.push(f); }
+        var re = rs[rs.length - 1]; if (re.exists) e = { grid: pj(re.data().gridJson, {}), numAlim: re.data().numAlim || 8, numGH: re.data().numGH || 9 };
+        var enLocal = (leerLocal().P || []).some(function (x) { return x.id === pid; });
+        if (!confirm('Reabrir «' + (meta.nombre || pid) + '»: vuelve a tu lista de trabajo con su precosteo, ' + fts.length + ' ficha(s) de medidas' + (e ? ' y su enhebrado' : '') + (enLocal ? '.\n\nYa tienes un proyecto con el mismo código: se traerá como copia aparte.' : '.'))) return;
+        if (!enLocal) { delete arch[pid]; guardaArch(); d.collection('fichas').doc('PROYECTO-' + pid).delete().catch(function () {}); }
+        return traer([{ p: p, fts: fts, e: e && rich(e.grid) > 0 ? e : null, estado: enLocal ? 'copia' : 'nueva' }]);
+      });
+    }).catch(function (er) { alert('No se pudo reabrir: ' + (er.message || er)); });
+  }
+  function clickNuevo() {
+    var bs = document.querySelectorAll('button'), i;
+    for (i = 0; i < bs.length; i++) { if (/nueva\s+ficha/i.test(bs[i].textContent) && !bs[i].closest('#swsafe-ov')) { bs[i].click(); return true; } }
+    return false;
+  }
+  function pintarTerminados() {
+    var el = document.getElementById('sw-term'); if (!el) return;
+    if (!db()) { el.innerHTML = '<span class="m">Sin conexión a la nube.</span>'; return; }
+    rango('PROYECTO-').then(function (rs) {
+      el = document.getElementById('sw-term'); if (!el) return;
+      rs = rs.filter(function (x) { return x.data && x.data.tipo === 'proyecto_terminado'; }).sort(function (a, b) { return (b.data._closedAt || 0) - (a.data._closedAt || 0); });
+      if (!rs.length) { el.innerHTML = '<span class="m">Todavía no has terminado ningún proyecto.</span>'; return; }
+      var t = '<table>';
+      rs.forEach(function (x) { var m = x.data; t += '<tr><td><b>' + esc(m.nombre) + '</b><br><span class="m">' + esc(m.referencia) + (m.talla ? ' · ' + esc(m.talla) : '') + '</span></td><td class="m">' + fmtF(m._closedAt || 0) + '</td><td><button data-a="reabrir" data-id="' + esc(m.pid) + '">Reabrir</button></td></tr>'; });
+      el.innerHTML = t + '</table>';
+    }).catch(function () { var e2 = document.getElementById('sw-term'); if (e2) e2.innerHTML = '<span class="wa">No se pudo leer la nube.</span>'; });
+  }
   function guardarTodoNube() {
     if (!db()) return alert('Todavía no hay conexión con la nube. Revisa el internet e inténtalo de nuevo.');
     var L = leerLocal(), t = [];
@@ -876,6 +961,20 @@
     var n = pendientes(), an = analizar(L), cv = counts(an.keep);
     var h = '<div style="display:flex;justify-content:space-between;gap:8px"><div><h2>🛟 Mis fichas: copias y recuperación</h2><div class="m">Todo lo que haces se guarda solo en la nube. Lo que traes de un archivo llega como ficha separada: <b>nunca se mezcla</b> con las que ya tienes.</div></div><button class="g" data-a="cerrar">Cerrar ✕</button></div>';
     h += '<div style="margin-top:10px">Ahora tienes: <b>' + cv.P + '</b> precosteos · <b>' + cv.F + '</b> fichas de medidas · <b>' + cv.E + '</b> enhebrados &nbsp;·&nbsp; ' + (!db() ? '<span class="wa">sin conexión a la nube</span>' : n ? '<span class="wa">' + n + ' sin guardar en la nube</span>' : '<span class="ok">todo guardado en la nube ✓</span>') + '</div>';
+    h += '<h3>Mis proyectos en trabajo</h3>';
+    if (!an.keep.P.length) h += '<div class="m">No tienes proyectos en trabajo.</div>';
+    else {
+      h += '<table>';
+      an.keep.P.forEach(function (p) {
+        var nf = an.keep.F.filter(function (f) { return f.fichaRefId === p.id; }).length, ne = an.keep.E[p.id] && rich(an.keep.E[p.id].grid) > 0;
+        h += '<tr><td><b>' + esc(p.nombrePrenda || p.id) + '</b><br><span class="m">' + esc((p.header && p.header.referencia) || '') + (p.header && p.header.talla ? ' · ' + esc(p.header.talla) : '') + '</span></td>' +
+          '<td class="m">' + (nf ? '<span class="ok">medidas ✓</span> ' : 'sin medidas ') + (ne ? '<span class="ok">enhebrado ✓</span>' : 'sin enhebrado') + '</td>' +
+          '<td><button data-a="terminar" data-id="' + esc(p.id) + '">✅ Terminar</button><button class="g" data-a="terminarnuevo" data-id="' + esc(p.id) + '">✅ Terminar y empezar nuevo</button></td></tr>';
+      });
+      h += '</table>';
+    }
+    h += '<button class="big" data-a="nuevo">🆕 Empezar proyecto nuevo</button>';
+    h += '<h3>Proyectos terminados <span class="m" style="text-transform:none">(guardados en la nube; SWAN2 los sigue viendo)</span></h3><div id="sw-term" class="m">Cargando…</div>';
     if (an.nBad) h += '<div class="wa" style="margin-top:6px">🧹 Hay ' + Object.keys(an.badE).length + ' enhebrado(s) y ' + an.badF.length + ' ficha(s) de medidas que no pertenecen a ningún precosteo (o están repetidas). Son basura: <button data-a="limpiar">🧹 Limpiar</button></div>';
     h += '<div style="margin-top:12px"><label class="b big">📂 Traer fichas desde un archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label>' +
          '<button class="big" data-a="deshacer">↩ Deshacer la última importación</button>' +
@@ -898,6 +997,7 @@
       el.innerHTML = t + '</table>';
     });
     if (cacheNube) pintarNube();
+    pintarTerminados();
   }
   function pintarNube() {
     var el = document.getElementById('sw-nube'); if (!el || !cacheNube) return;
@@ -919,6 +1019,11 @@
     var a = b.getAttribute('data-a'), id = parseInt(b.getAttribute('data-id') || '0', 10);
     if (a === 'cerrar') return cerrarPanel();
     if (a === 'descargar') { descargar(); return pintar(); }
+    var sid = b.getAttribute('data-id');
+    if (a === 'terminar') return terminarProyecto(sid, false);
+    if (a === 'terminarnuevo') return terminarProyecto(sid, true);
+    if (a === 'reabrir') return reabrirProyecto(sid);
+    if (a === 'nuevo') { cerrarPanel(); return clickNuevo(); }
     if (a === 'deshacer') return deshacerImport();
     if (a === 'limpiar') return limpiarBasura();
     if (a === 'guardarnube') return guardarTodoNube();
@@ -965,6 +1070,7 @@
   function iniciar() {
     if (APROB) return;
     crearPill();
+    try { if (sessionStorage.getItem('swsafe_nuevo')) { sessionStorage.removeItem('swsafe_nuevo'); var tn = 0, iv = setInterval(function () { if (clickNuevo() || ++tn > 20) clearInterval(iv); }, 500); } } catch (e) {}
     setTimeout(function () { snap('Al abrir la hoja'); }, 1500);
     setInterval(function () { snap('Automática'); }, 300000);
     podar().then(pillAct);
