@@ -1079,6 +1079,24 @@
       if (!db()) { if (++intentos < 200) setTimeout(esperar, 300); return; }
       var ult = parseInt(rd('swsafe_lastscan') || '0', 10);
       var seguir = function () { pushPendientes().catch(function () {}); };
+      /* Navegador vacío (datos borrados / otro computador): se recupera SOLO todo lo vivo de la nube,
+         sin tocar los proyectos terminados. */
+      var L0 = leerLocal(), c0 = counts(L0);
+      if (c0.P === 0 && c0.F === 0 && c0.E === 0 && !sessionStorage.getItem('swsafe_auto')) {
+        try { sessionStorage.setItem('swsafe_auto', '1'); } catch (e) {}
+        Promise.all([escanearNube(), rango('PROYECTO-').catch(function () { return []; })]).then(function (rr) {
+          var r = rr[0], excl = {};
+          Object.keys(arch).forEach(function (k) { excl[k] = 1; });
+          rr[1].forEach(function (x) { var m = x.data || {}; if (m.pid) excl[m.pid] = 1; (m.ftIds || []).forEach(function (i) { excl[i] = 1; }); });
+          var inc = { P: r.inc.P.filter(function (x) { return !excl[x.id]; }),
+                      F: r.inc.F.filter(function (x) { return !excl[x.id] && !excl[x.fichaRefId]; }), E: {} };
+          Object.keys(r.inc.E).forEach(function (k) { if (!excl[k]) inc.E[k] = r.inc.E[k]; });
+          if (!inc.P.length && !inc.F.length && !Object.keys(inc.E).length) { wr('swsafe_lastscan', String(Date.now())); return seguir(); }
+          var pl = planear(L0, inc, {}, true);
+          aplicar(pl.merged, 'recuperación automática desde la nube', pl.stamps);
+        }).catch(function () { seguir(); });
+        return;
+      }
       if (Date.now() - ult < 3600000) { setTimeout(seguir, 4000); return; }
       setTimeout(function () {
         escanearNube().then(function (r) {
