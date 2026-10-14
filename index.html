@@ -319,22 +319,41 @@
   /* Regla: cada precosteo tiene como máximo 1 ficha de medidas y 1 enhebrado.
      Basura = enhebrado cuyo precosteo ya no existe, medidas que apuntan a un precosteo inexistente,
      y medidas repetidas para el mismo precosteo (se conserva la más completa). */
+  function nz(x) { return String(x == null ? '' : x).toLowerCase().replace(/\s+/g, ' ').trim(); }
+  function estadoPeso(p) { var st = String(p.status || (p.header && p.header.status) || '').toUpperCase(); return st.indexOf('APROB') === 0 ? 3 : st.indexOf('REVIS') === 0 ? 2 : 1; }
   function analizar(L) {
-    var idsP = {}, i; (L.P || []).forEach(function (p) { if (p && p.id) idsP[p.id] = 1; });
-    var keepF = [], badF = [], porRef = {};
-    (L.F || []).forEach(function (f) {
-      if (!f || !f.id) return;
-      if (!f.fichaRefId) { keepF.push(f); return; }                  // sin vincular todavía: trabajo en curso, se respeta
+    var P0 = (L.P || []).filter(function (p) { return p && p.id; }), F0 = (L.F || []).filter(function (f) { return f && f.id; }), E0 = L.E || {};
+    /* 1) COPIAS REPETIDAS DE UN PRECOSTEO: mismo nombre + referencia + talla. Se queda la mejor
+          (aprobada > en revisión > borrador; luego la que tiene más medidas/enhebrado/datos; luego la más reciente). */
+    var grupos = {};
+    P0.forEach(function (p) { var h = p.header || {}, k = nz(p.nombrePrenda) + '|' + nz(h.referencia) + '|' + nz(h.talla); if (nz(p.nombrePrenda) || nz(h.referencia)) (grupos[k] = grupos[k] || []).push(p); });
+    function puntaje(p) {
+      var f = 0; F0.forEach(function (x) { if (x.fichaRefId === p.id) f = Math.max(f, rich(sinAprob(x))); });
+      var e = E0[p.id] ? rich(E0[p.id].grid) : 0;
+      return [estadoPeso(p), f + e, rich(p), tiempoValido(p.updatedAt)];
+    }
+    function mejor(a, b) { var x = puntaje(a), y = puntaje(b); for (var i = 0; i < x.length; i++) if (x[i] !== y[i]) return x[i] > y[i] ? -1 : 1; return 0; }
+    var badP = [], badIds = {};
+    for (var g in grupos) if (grupos[g].length > 1) {
+      var arr = grupos[g].slice().sort(mejor);
+      for (var q = 1; q < arr.length; q++) { badP.push(arr[q]); badIds[arr[q].id] = 1; }
+    }
+    var keepP = P0.filter(function (p) { return !badIds[p.id]; });
+    var idsP = {}; keepP.forEach(function (p) { idsP[p.id] = 1; });
+    /* 2) fichas de medidas y enhebrados: 1 por precosteo; los de copias quitadas o sin precosteo son basura */
+    var keepF = [], badF = [], porRef = {}, i;
+    F0.forEach(function (f) {
+      if (!f.fichaRefId) { keepF.push(f); return; }
       if (!idsP[f.fichaRefId]) { badF.push(f); return; }
       (porRef[f.fichaRefId] = porRef[f.fichaRefId] || []).push(f);
     });
     for (var r in porRef) {
-      var arr = porRef[r].slice().sort(function (a, b) { return (rich(sinAprob(b)) - rich(sinAprob(a))) || (((seen[b.id] && seen[b.id].t) || 0) - ((seen[a.id] && seen[a.id].t) || 0)); });
-      keepF.push(arr[0]); for (i = 1; i < arr.length; i++) badF.push(arr[i]);
+      var ar = porRef[r].slice().sort(function (a, b) { return (rich(sinAprob(b)) - rich(sinAprob(a))) || (((seen[b.id] && seen[b.id].t) || 0) - ((seen[a.id] && seen[a.id].t) || 0)); });
+      keepF.push(ar[0]); for (i = 1; i < ar.length; i++) badF.push(ar[i]);
     }
-    var keepE = {}, badE = {}; for (var k in (L.E || {})) { if (idsP[k]) keepE[k] = L.E[k]; else if (rich(L.E[k] && L.E[k].grid) > 0) badE[k] = L.E[k]; }
+    var keepE = {}, badE = {}; for (var k in E0) { if (idsP[k]) keepE[k] = E0[k]; else if (rich(E0[k] && E0[k].grid) > 0) badE[k] = E0[k]; }
     var keepOrder = {}; keepF.forEach(function (f) { keepOrder[f.id] = 1; });
-    return { keep: { P: L.P || [], F: (L.F || []).filter(function (f) { return f && keepOrder[f.id]; }), E: keepE }, badF: badF, badE: badE, nBad: badF.length + Object.keys(badE).length };
+    return { keep: { P: keepP, F: F0.filter(function (f) { return keepOrder[f.id]; }), E: keepE }, badP: badP, badF: badF, badE: badE, nBad: badP.length + badF.length + Object.keys(badE).length };
   }
   function counts(L) { return { P: (L.P || []).length, F: (L.F || []).length, E: nEnh(L.E) }; }
 
@@ -711,6 +730,7 @@
       return aplicar(pl.merged, 'importar ' + etiqueta, pl.stamps);
     });
   }
+  function claveP(p) { var h = p.header || {}; return (nz(p.nombrePrenda) || nz(h.referencia)) ? nz(p.nombrePrenda) + '|' + nz(h.referencia) + '|' + nz(h.talla) : ''; }
   function grupos(inc, loc) {
     var idsP = {}, locP = {}, locF = {}, gs = [];
     (inc.P || []).forEach(function (p) { if (p && p.id) idsP[p.id] = 1; });
@@ -722,7 +742,8 @@
       var todoIgual = locP[p.id] && igual(locP[p.id], p) &&
         fts.every(function (f) { return locF[f.id] && igual(locF[f.id], f); }) &&
         (!eOk || (loc.E && loc.E[p.id] && JSON.stringify(loc.E[p.id].grid) === JSON.stringify(e.grid)));
-      gs.push({ p: p, fts: fts, e: eOk ? e : null, estado: todoIgual ? 'igual' : (locP[p.id] ? 'copia' : 'nueva') });
+      var mismo = locP[p.id] || (loc.P || []).filter(function (x) { return claveP(x) && claveP(x) === claveP(p); })[0];
+      gs.push({ p: p, fts: fts, e: eOk ? e : null, estado: todoIgual ? 'igual' : (mismo ? 'copia' : 'nueva') });
     });
     (inc.F || []).forEach(function (f) {
       if (!f || !f.id || (f.fichaRefId && idsP[f.fichaRefId])) return;
@@ -732,42 +753,49 @@
     return gs;
   }
   function traer(sel) {
-    var loc = leerLocal(), out = { P: loc.P.slice(), F: loc.F.slice(), E: Object.assign({}, loc.E) }, stamps = {}, n = 0, tick = Date.now();
-    function existeP(id) { return out.P.some(function (x) { return x.id === id; }); }
+    var loc = leerLocal(), out = { P: loc.P.slice(), F: loc.F.slice(), E: Object.assign({}, loc.E) }, stamps = {}, quitar = { P: [], F: [], E: {} };
     sel.forEach(function (g) {
       if (g.estado === 'igual') return;
-      var map = {};
       if (g.p) {
-        var np = g.p;
-        if (existeP(np.id)) {
-          var nid = 'SW-' + (tick + (n++)).toString(36).toUpperCase();
-          map[np.id] = nid; np = Object.assign({}, np, { id: nid, nombrePrenda: (np.nombrePrenda || '') + ' (importada)' });
-        }
+        var np = g.p, viejo = out.P.filter(function (x) { return x.id === np.id || (claveP(x) && claveP(x) === claveP(np)); });
+        /* Ya existe esa misma ficha: la del archivo la REEMPLAZA (nunca queda una copia al lado).
+           La anterior queda guardada en la papelera y en la copia automática de antes de importar. */
+        viejo.forEach(function (v) {
+          out.P = out.P.filter(function (x) { return x.id !== v.id; });
+          if (v.id !== np.id) {
+            quitar.P.push(v);
+            out.F.filter(function (f) { return f.fichaRefId === v.id; }).forEach(function (f) {
+              if (g.fts.length) { out.F = out.F.filter(function (x) { return x.id !== f.id; }); quitar.F.push(f); }
+              else { out.F = out.F.map(function (x) { return x.id === f.id ? Object.assign({}, x, { fichaRefId: np.id }) : x; }); }
+            });
+            if (out.E[v.id]) { if (g.e) { quitar.E[v.id] = out.E[v.id]; } else { out.E[np.id] = out.E[v.id]; } delete out.E[v.id]; }
+          } else if (g.fts.length) {
+            out.F.filter(function (f) { return f.fichaRefId === v.id && !g.fts.some(function (x) { return x.id === f.id; }); }).forEach(function (f) { out.F = out.F.filter(function (x) { return x.id !== f.id; }); quitar.F.push(f); });
+          }
+        });
         out.P.push(np); stamps[np.id] = { item: np, t: tiempoValido(np.updatedAt) };
         if (g.e) { out.E[np.id] = g.e; stamps['ENH-' + np.id] = { item: g.e, t: 0 }; }
       }
       g.fts.forEach(function (f) {
-        var nf = f;
-        if (map[f.fichaRefId]) nf = Object.assign({}, nf, { fichaRefId: map[f.fichaRefId] });
-        var ya = out.F.filter(function (x) { return x.id === nf.id; })[0];
-        if (ya) { if (igual(ya, nf)) return; nf = Object.assign({}, nf, { id: 'FT004-' + (tick + (n++)) }); }
-        out.F.push(nf); stamps[nf.id] = { item: nf, t: 0 };
+        out.F = out.F.filter(function (x) { return x.id !== f.id; });
+        out.F.push(f); stamps[f.id] = { item: f, t: 0 };
       });
     });
-    return aplicar(out, 'importar fichas', stamps);
+    quitar.F = quitar.F.filter(function (f) { return !out.F.some(function (x) { return x.id === f.id; }); });
+    return aplicar(out, 'importar fichas', stamps, quitar);
   }
   function dialogoImport(inc, nombre) {
     var gs = grupos(inc, leerLocal());
     if (!gs.length) { alert('Ese archivo no trae fichas.'); return; }
     var ov = document.createElement('div'); ov.id = 'swsafe-ov2'; ov.className = 'no-print';
     var h = '<div id="swsafe-box"><h2>Fichas dentro de «' + esc(nombre) + '»</h2>' +
-      '<div class="m">Marca las que quieres traer. Cada una llega <b>completa y separada</b> (con su precosteo, medidas y enhebrado) y <b>no se mezcla ni cambia ninguna</b> de las que ya tienes.</div><table style="margin-top:8px">';
+      '<div class="m">Marca las que quieres traer. Cada una llega <b>completa</b> (precosteo, medidas y enhebrado), <b>sin mezclarse</b>. Si ya tienes esa ficha, la del archivo la reemplaza y la anterior queda en la papelera: <b>nunca se crean copias</b>.</div><table style="margin-top:8px">';
     gs.forEach(function (g, i) {
       var p = g.p, f = g.fts[0];
       var nm = p ? (p.nombrePrenda || p.id) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : '') + (p.header && p.header.talla ? ' · ' + p.header.talla : '') : 'Medidas: ' + (f.producto || f.lcc || f.id);
       var tag = (p ? '<span class="ok">precosteo ✓</span> ' : '') + (g.fts.length ? '<span class="ok">medidas ✓</span> ' : '') + (g.e ? '<span class="ok">enhebrado ✓</span>' : '');
-      var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya tienes otra con el mismo código: se traería como copia aparte</span>';
-      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'nueva' ? ' checked' : '') + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
+      var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya la tienes: la del archivo la REEMPLAZA (la actual queda en la papelera)</span>';
+      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado !== 'igual' ? ' checked' : '') + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
     });
     h += '</table><div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="no">Cancelar</button></div></div>';
     ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
@@ -803,14 +831,16 @@
       });
     });
   }
-  function limpiarBasura() {
+  function textoBasura(an) {
+    return '• ' + an.badP.length + ' precosteo(s) repetido(s) (copias de la misma ficha)\n• ' + an.badF.length + ' ficha(s) de medidas sueltas o repetidas\n• ' + Object.keys(an.badE).length + ' enhebrado(s) sobrantes';
+  }
+  function limpiarBasura(sinPreguntar) {
     var cur = leerLocal();
     if (!(cur.P || []).length) return alert('No hay precosteos: no se limpia nada por seguridad.');
     var an = analizar(cur);
-    if (!an.nBad) return alert('No hay basura: todo está vinculado a un precosteo ✓');
-    var nE = Object.keys(an.badE).length;
-    if (!confirm('Se van a quitar de la lista:\n• ' + nE + ' enhebrado(s) cuyo precosteo ya no existe\n• ' + an.badF.length + ' ficha(s) de medidas sueltas o repetidas\n\nNo se pierde nada para siempre: quedan en la papelera y en una copia automática.\n\n¿Limpiar?')) return;
-    return aplicar(an.keep, 'limpiar basura', null, { P: [], F: an.badF, E: an.badE });
+    if (!an.nBad) return alert('No hay basura: todo está ordenado ✓');
+    if (!sinPreguntar && !confirm('Se van a quitar de la lista:\n' + textoBasura(an) + '\n\nSe queda la mejor versión de cada una (la aprobada / más completa). No se pierde nada: todo queda en la papelera y en una copia de seguridad.')) return;
+    return aplicar(an.keep, 'limpiar basura', null, { P: an.badP, F: an.badF, E: an.badE });
   }
   /* ── Terminar proyecto / empezar nuevo ──
      Un proyecto = 1 precosteo + su ficha de medidas + su enhebrado. Al terminarlo se confirma que
@@ -975,7 +1005,7 @@
     }
     h += '<button class="big" data-a="nuevo">🆕 Empezar proyecto nuevo</button>';
     h += '<h3>Proyectos terminados <span class="m" style="text-transform:none">(guardados en la nube; SWAN2 los sigue viendo)</span></h3><div id="sw-term" class="m">Cargando…</div>';
-    if (an.nBad) h += '<div class="wa" style="margin-top:6px">🧹 Hay ' + Object.keys(an.badE).length + ' enhebrado(s) y ' + an.badF.length + ' ficha(s) de medidas que no pertenecen a ningún precosteo (o están repetidas). Son basura: <button data-a="limpiar">🧹 Limpiar</button></div>';
+    if (an.nBad) h += '<div class="wa" style="margin-top:6px">🧹 Hay ' + an.badP.length + ' precosteo(s) repetido(s), ' + an.badF.length + ' ficha(s) de medidas y ' + Object.keys(an.badE).length + ' enhebrado(s) que sobran (copias). <button data-a="limpiar">Limpiar ahora</button></div>';
     h += '<div style="margin-top:12px"><label class="b big">📂 Traer fichas desde un archivo .json<input type="file" accept=".json" data-a="archivo" style="display:none"></label>' +
          '<button class="big" data-a="deshacer">↩ Deshacer la última importación</button>' +
          '<button class="big" data-a="guardarnube">☁ Guardar todo en la nube ahora</button>' +
@@ -1070,6 +1100,12 @@
   function iniciar() {
     if (APROB) return;
     crearPill();
+    try {
+      var msg = sessionStorage.getItem('swsafe_msg');
+      if (msg) { sessionStorage.removeItem('swsafe_msg'); var bn = document.createElement('div'); bn.className = 'no-print'; bn.textContent = msg;
+        bn.style.cssText = 'position:fixed;left:12px;right:12px;bottom:70px;z-index:10001;background:#065f46;color:#ecfdf5;padding:12px 14px;border-radius:12px;font:600 13px system-ui;box-shadow:0 6px 24px #0008';
+        bn.onclick = function () { bn.remove(); }; document.body.appendChild(bn); setTimeout(function () { bn.remove(); }, 12000); }
+    } catch (e) {}
     try { if (sessionStorage.getItem('swsafe_nuevo')) { sessionStorage.removeItem('swsafe_nuevo'); var tn = 0, iv = setInterval(function () { if (clickNuevo() || ++tn > 20) clearInterval(iv); }, 500); } } catch (e) {}
     setTimeout(function () { snap('Al abrir la hoja'); }, 1500);
     setInterval(function () { snap('Automática'); }, 300000);
@@ -1092,11 +1128,22 @@
                       F: r.inc.F.filter(function (x) { return !excl[x.id] && !excl[x.fichaRefId]; }), E: {} };
           Object.keys(r.inc.E).forEach(function (k) { if (!excl[k]) inc.E[k] = r.inc.E[k]; });
           if (!inc.P.length && !inc.F.length && !Object.keys(inc.E).length) { wr('swsafe_lastscan', String(Date.now())); return seguir(); }
+          var an0 = analizar(inc); inc = an0.keep;               // lo repetido no se trae
           var pl = planear(L0, inc, {}, true);
           aplicar(pl.merged, 'recuperación automática desde la nube', pl.stamps);
         }).catch(function () { seguir(); });
         return;
       }
+      /* Orden automático: si hay copias repetidas (mismo precosteo, medidas o enhebrado de más) se
+         dejan solo las mejores; lo quitado va a la papelera y a una copia de seguridad. */
+      try {
+        var anA = analizar(L0);
+        if (counts(L0).P > 0 && anA.nBad && !sessionStorage.getItem('swsafe_autolimp')) {
+          sessionStorage.setItem('swsafe_autolimp', '1');
+          sessionStorage.setItem('swsafe_msg', '🧹 Se ordenaron ' + anA.nBad + ' copia(s) repetida(s). Quedó la mejor de cada ficha; las otras están en la papelera.');
+          limpiarBasura(true); return;
+        }
+      } catch (e) {}
       if (Date.now() - ult < 3600000) { setTimeout(seguir, 4000); return; }
       setTimeout(function () {
         escanearNube().then(function (r) {
