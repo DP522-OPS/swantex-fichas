@@ -319,6 +319,16 @@
   /* Regla: cada precosteo tiene como máximo 1 ficha de medidas y 1 enhebrado.
      Basura = enhebrado cuyo precosteo ya no existe, medidas que apuntan a un precosteo inexistente,
      y medidas repetidas para el mismo precosteo (se conserva la más completa). */
+  function claveP(p) {
+    var h = p.header || {}, sp = p.specs || {}, m = (h.maquinas && h.maquinas[0]) || {};
+    return (nz(p.nombrePrenda) || nz(h.referencia)) ?
+      [nz(p.nombrePrenda), nz(h.referencia), nz(h.talla), nz(sp.pesoUnitarioGramos), nz(m.tipoMaquina), nz(m.maquinaModelo), nz(m.diametro)].join('|') : '';
+  }
+  function esVacia(p) {
+    var h = p.header || {}, sp = p.specs || {};
+    return !nz(h.referencia) && !(parseFloat(sp.pesoUnitarioGramos) > 0) && !(parseFloat(sp.tiempoMin) > 0) && !(parseFloat(sp.tiempoSeg) > 0) &&
+      /^(nueva referencia)?$/.test(nz(p.nombrePrenda));
+  }
   function nz(x) { return String(x == null ? '' : x).toLowerCase().replace(/\s+/g, ' ').trim(); }
   function estadoPeso(p) { var st = String(p.status || (p.header && p.header.status) || '').toUpperCase(); return st.indexOf('APROB') === 0 ? 3 : st.indexOf('REVIS') === 0 ? 2 : 1; }
   function analizar(L) {
@@ -326,7 +336,7 @@
     /* 1) COPIAS REPETIDAS DE UN PRECOSTEO: mismo nombre + referencia + talla. Se queda la mejor
           (aprobada > en revisión > borrador; luego la que tiene más medidas/enhebrado/datos; luego la más reciente). */
     var grupos = {};
-    P0.forEach(function (p) { var h = p.header || {}, k = nz(p.nombrePrenda) + '|' + nz(h.referencia) + '|' + nz(h.talla); if (nz(p.nombrePrenda) || nz(h.referencia)) (grupos[k] = grupos[k] || []).push(p); });
+    P0.forEach(function (p) { var h = p.header || {}, k = claveP(p); if (k) (grupos[k] = grupos[k] || []).push(p); });
     function puntaje(p) {
       var f = 0; F0.forEach(function (x) { if (x.fichaRefId === p.id) f = Math.max(f, rich(sinAprob(x))); });
       var e = E0[p.id] ? rich(E0[p.id].grid) : 0;
@@ -338,6 +348,8 @@
       var arr = grupos[g].slice().sort(mejor);
       for (var q = 1; q < arr.length; q++) { badP.push(arr[q]); badIds[arr[q].id] = 1; }
     }
+    var vacias = P0.filter(function (p) { return !badIds[p.id] && esVacia(p) && !F0.some(function (f) { return f.fichaRefId === p.id && rich(sinAprob(f)) > 0; }) && !(E0[p.id] && rich(E0[p.id].grid) > 0); });
+    if (vacias.length && vacias.length < P0.length - badP.length) vacias.forEach(function (p) { badP.push(p); badIds[p.id] = 1; });
     var keepP = P0.filter(function (p) { return !badIds[p.id]; });
     var idsP = {}; keepP.forEach(function (p) { idsP[p.id] = 1; });
     /* 2) fichas de medidas y enhebrados: 1 por precosteo; los de copias quitadas o sin precosteo son basura */
@@ -572,6 +584,7 @@
     });
   }
   function guardarPrecosteo(s) {
+    if (APROB || esVacia(s)) return Promise.resolve();     // una ficha en blanco o un enlace de aprobación NO crean basura en la nube
     var h = hash(JSON.stringify(s));
     return guardarPrecosteo0(s).then(function (r) { if (db() && !APROB) marcar(s.id, h); return r; });
   }
@@ -640,7 +653,7 @@
         var a = []; s.forEach(function (x) { a.push({ id: x.id, data: x.data() }); }); return a;
       });
     }
-    return Promise.all([r('SW-'), r('FT004-'), r('ENH-'), r('PAPELERA-')]).then(function (res) {
+    return Promise.all([r('SW-').then(function (a) { return r('STRUCT-').then(function (b) { return a.concat(b); }); }), r('FT004-'), r('ENH-'), r('PAPELERA-')]).then(function (res) {
       var inc = { P: [], F: [], E: {} }, pap = [];
       res[0].forEach(function (x) { if (x.data && x.data.fibras) inc.P.push(x.data); });
       res[1].forEach(function (x) { try { var f = unescKeys(x.data); f.id = f.id || x.id; inc.F.push(f); } catch (e) {} });
@@ -654,7 +667,7 @@
     var inc = { P: [], F: [], E: {} };
     items.forEach(function (it) {
       var o = pj(it.json, null); if (!o) return;
-      if (/^SW-/.test(it.origen) && o.fibras) inc.P.push(o);
+      if (/^(SW|STRUCT)-/.test(it.origen) && o.fibras) inc.P.push(o);
       else if (/^FT004-/.test(it.origen)) { try { var f = unescKeys(o); f.id = f.id || it.origen; inc.F.push(f); } catch (e) {} }
       else if (/^ENH-/.test(it.origen)) { var fid = o.fichaId || it.origen.replace(/^ENH-/, ''); inc.E[fid] = { grid: pj(o.gridJson, {}), numAlim: o.numAlim || 8, numGH: o.numGH || 9 }; }
     });
@@ -730,7 +743,6 @@
       return aplicar(pl.merged, 'importar ' + etiqueta, pl.stamps);
     });
   }
-  function claveP(p) { var h = p.header || {}; return (nz(p.nombrePrenda) || nz(h.referencia)) ? nz(p.nombrePrenda) + '|' + nz(h.referencia) + '|' + nz(h.talla) : ''; }
   function grupos(inc, loc) {
     var idsP = {}, locP = {}, locF = {}, gs = [];
     (inc.P || []).forEach(function (p) { if (p && p.id) idsP[p.id] = 1; });
@@ -923,12 +935,15 @@
   }
   function guardarTodoNube() {
     if (!db()) return alert('Todavía no hay conexión con la nube. Revisa el internet e inténtalo de nuevo.');
-    var L = leerLocal(), t = [];
+    var L = leerLocal(), t = [], fallos = 0, malo = function () { fallos++; };
     excluir = {};
-    (L.P || []).forEach(function (s) { if (s && s.id) t.push(guardarPrecosteo(s).catch(function () {})); });
-    (L.F || []).forEach(function (f) { if (f && f.id) t.push(pushFT(f).catch(function () {})); });
-    for (var k in (L.E || {})) if (L.E[k] && rich(L.E[k].grid) > 0) t.push(pushEnh(k, L.E[k]).catch(function () {}));
-    return Promise.all(t).then(function () { pillAct(); pintar(); alert('Listo: todo quedó guardado en la nube ✓'); });
+    (L.P || []).forEach(function (s) { if (s && s.id) t.push(guardarPrecosteo(s).catch(malo)); });
+    (L.F || []).forEach(function (f) { if (f && f.id) t.push(pushFT(f).catch(malo)); });
+    for (var k in (L.E || {})) if (L.E[k] && rich(L.E[k].grid) > 0) t.push(pushEnh(k, L.E[k]).catch(malo));
+    return Promise.all(t).then(function () {
+      pillAct(); pintar();
+      alert(fallos ? '⚠ NO se pudo guardar todo: fallaron ' + fallos + ' elemento(s). Revisa el internet y vuelve a intentar.' : 'Listo: todo quedó guardado en la nube ✓');
+    });
   }
   function descargar() {
     var L = analizar(leerLocal()).keep;
@@ -2137,7 +2152,22 @@ const EnhebradoTab = ({ structures }) => {
                     _updatedAt: Date.now(),
                     _updatedBy: 'elaboro',
                 }));
-                await FB.db.collection('fichas').doc(ficha.id).set(safe);
+                const ref = FB.db.collection('fichas').doc(ficha.id);
+                try {
+                    const sn = await ref.get();
+                    if (sn.exists) {
+                        const c = sn.data() || {};
+                        Object.keys(c).forEach(function (k) {
+                            const cv = c[k], lv = safe[k];
+                            const vacio = (x) => !x || (typeof x === 'object' && !x.nombre) ;
+                            // firmas de jefatura ya puestas en la nube: no se borran con una copia local vieja
+                            if (/^aprobo/.test(k) && cv && cv.nombre && vacio(lv)) safe[k] = cv;
+                            if (k === 'fechaAprobacion' && cv && !lv) safe[k] = cv;
+                            if (k === 'status' && cv === 'APROBADO' && lv !== 'APROBADO' && Object.keys(c).some(function (x) { return /^aprobo/.test(x) && c[x] && c[x].nombre; })) safe[k] = cv;
+                        });
+                    }
+                } catch (e0) {}
+                await ref.set(safe);
                 return { ok:true };
             } catch(e) {
                 console.error('Firebase save error:', e);
@@ -4678,7 +4708,7 @@ const EnhebradoTab = ({ structures }) => {
 
         const duplicateStructure = (origen) => {
             const copia = JSON.parse(JSON.stringify(origen));
-            copia.id = 'STRUCT-' + Date.now();
+            copia.id = 'SW-' + Date.now().toString(36).toUpperCase();
             if (copia.header) {
                 copia.header.status = 'BORRADOR';
                 copia.header.createdAt = Date.now();
