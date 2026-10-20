@@ -2070,6 +2070,24 @@ const EnhebradoTab = ({ structures, focusId }) => {
             try { return JSON.stringify(e); } catch(x) { return String(e); }
         };
 
+        // Explica el error de EmailJS en palabras simples
+        const explicaErrorEmail = (txt) => {
+            var t = String(txt || '');
+            if (/426|quota/i.test(t)) return 'Se agotó el cupo mensual de correos del servicio (EmailJS). Usa «Abrir en mi correo» o copia el link.';
+            if (/429/.test(t)) return 'Demasiados envíos seguidos. Espera un minuto y vuelve a intentar.';
+            if (/412|auth|insufficient|scope|gmail/i.test(t)) return 'El servicio de correo perdió el permiso de la cuenta que envía. Hay que reconectarla en EmailJS.';
+            if (/400|template|service/i.test(t)) return 'Configuración de EmailJS incorrecta (servicio o plantilla).';
+            if (/network|fetch|failed|timeout/i.test(t)) return 'Sin conexión o bloqueado por la red. Revisa internet.';
+            return 'No se pudo enviar. Usa «Abrir en mi correo» o copia el link.';
+        };
+        const mailtoAprobacion = (ficha, rolKey, link) => {
+            const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rolKey]; if (!jef) return '';
+            var prod = (ficha.producto || ficha.nombrePrenda || 'ficha') + (ficha.lcc ? ' · ' + ficha.lcc : '');
+            var asunto = 'Aprobación ficha de medidas — ' + prod;
+            var cuerpo = 'Hola ' + jef.nombre + ',\n\nPor favor revisa y aprueba la ficha ' + prod + ' desde este link:\n' + link + '\n\nGracias.';
+            return 'mailto:' + jef.correos.join(',') + '?cc=' + encodeURIComponent(CFG.CORREO_CIRCULARES || '') + '&subject=' + encodeURIComponent(asunto) + '&body=' + encodeURIComponent(cuerpo);
+        };
+
         // Send approval email to one jefatura role
         const enviarCorreoAprobacion = (ficha, rolKey) => {
             const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rolKey];
@@ -2158,8 +2176,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
                         link: r.link || fichaToLink(ficha, rol) });
                 } catch(e) {
                     const jef = CFG.JEFATURAS_CORREO && CFG.JEFATURAS_CORREO[rol];
+                    var lnk = fichaToLink(ficha, rol), et = errorEmailTxt(e);
                     resultados.push({ rol: jef ? jef.rol : rol, nombre: jef ? jef.nombre : rol,
-                        ok: false, error: errorEmailTxt(e) });
+                        ok: false, error: et, explica: explicaErrorEmail(et), link: lnk, mailto: mailtoAprobacion(ficha, rol, lnk) });
                 }
             }
             setEnviando(false);
@@ -3803,9 +3822,22 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                 background:r.ok?'rgba(16,185,129,0.08)':'rgba(220,38,38,0.08)',
                                                 border:'1px solid '+(r.ok?'#065f46':'#7f1d1d')}}>
                                                 <span>{r.ok?'✅':'❌'}</span>
-                                                <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
-                                                    {r.nombre} ({r.rol})
-                                                </span>
+                                                <div style={{flex:1}}>
+                                                    <span style={{fontSize:10,fontWeight:700,color:r.ok?'#10b981':'#ef4444'}}>
+                                                        {r.nombre} ({r.rol})
+                                                    </span>
+                                                    {!r.ok && r.explica && (
+                                                        <div style={{fontSize:10,color:'#fca5a5',marginTop:2,fontWeight:500}}>
+                                                            {r.explica} <span style={{color:'#6b7280'}}>({r.error})</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                {!r.ok && r.mailto && (
+                                                    <a href={r.mailto} style={{padding:'4px 10px',borderRadius:6,background:'#1e3a5f',color:'#93c5fd',
+                                                        border:'1px solid #3b82f6',fontSize:10,fontWeight:700,textDecoration:'none',whiteSpace:'nowrap'}}>
+                                                        ✉ Abrir en mi correo
+                                                    </a>
+                                                )}
                                             </div>
                                         );
                                     })}
