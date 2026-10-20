@@ -897,6 +897,46 @@
       setTimeout(function () { location.reload(); }, 600);
     }).catch(function (er) { alert('No se terminó el proyecto (no se quitó nada): ' + (er.message || er)); });
   }
+  function terminarVarios(pids) {
+    var d = db(); if (!d) return alert('No hay conexión con la nube. Para guardar los proyectos y empezar limpio tiene que haber conexión.');
+    var L = leerLocal(), ps = (L.P || []).filter(function (x) { return pids.indexOf(x.id) >= 0; });
+    var plan = ps.map(function (p) {
+      return { p: p, fts: (L.F || []).filter(function (f) { return f.fichaRefId === p.id; }), e: L.E && L.E[p.id] && rich(L.E[p.id].grid) > 0 ? L.E[p.id] : null };
+    });
+    snapSeguro('Antes de empezar proyecto nuevo').then(function () {
+      var t = [];
+      plan.forEach(function (x) { t.push(guardarPrecosteo(x.p)); x.fts.forEach(function (f) { t.push(pushFT(f)); }); if (x.e) t.push(pushEnh(x.p.id, x.e)); });
+      return Promise.all(t);
+    }).then(function () {
+      var chk = [];
+      plan.forEach(function (x) { chk.push(d.collection('fichas').doc(x.p.id).get()); x.fts.forEach(function (f) { chk.push(d.collection('fichas').doc(f.id).get()); }); if (x.e) chk.push(d.collection('fichas').doc('ENH-' + x.p.id).get()); });
+      return Promise.all(chk);
+    }).then(function (rs) {
+      if (!rs.every(function (x) { return x.exists; })) throw new Error('No se pudo confirmar en la nube');
+      return Promise.all(plan.map(function (x) {
+        var p = x.p;
+        return d.collection('fichas').doc('PROYECTO-' + p.id).set({ tipo: 'proyecto_terminado', pid: p.id, nombre: p.nombrePrenda || p.id, referencia: (p.header && p.header.referencia) || '', talla: (p.header && p.header.talla) || '', ftIds: x.fts.map(function (f) { return f.id; }), conEnhebrado: !!x.e, _closedAt: Date.now() });
+      }));
+    }).then(function () {
+      var ids = {}, E2 = Object.assign({}, L.E || {});
+      plan.forEach(function (x) { arch[x.p.id] = Date.now(); delete E2[x.p.id]; x.fts.forEach(function (f) { ids[f.id] = 1; }); });
+      guardaArch();
+      wr(KP, JSON.stringify((L.P || []).filter(function (x) { return pids.indexOf(x.id) < 0 && !esVacia(x); })));
+      wr(KF, JSON.stringify((L.F || []).filter(function (f) { return !ids[f.id]; })));
+      wr(KE, JSON.stringify(E2));
+      try { sessionStorage.setItem('swsafe_nuevo', '0'); } catch (er) {}   // '0': la app crea sola la ficha en blanco al quedar vacía
+      lastHash = null; snap('Después de guardar ' + plan.length + ' proyecto(s) y empezar nuevo');
+      setTimeout(function () { location.reload(); }, 600);
+    }).catch(function (er) { alert('No se empezó el proyecto nuevo (no se quitó nada de tu lista): ' + (er.message || er)); });
+  }
+  function empezarNuevo() {
+    var reales = (leerLocal().P || []).filter(function (p) { return p && p.id && !esVacia(p); });
+    cerrarPanel();
+    if (!reales.length) return clickNuevo();
+    var lista = reales.slice(0, 8).map(function (p) { return '• ' + (p.nombrePrenda || p.id) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : ''); }).join('\n') + (reales.length > 8 ? '\n• … y ' + (reales.length - 8) + ' más' : '');
+    if (!confirm('Tienes ' + reales.length + ' proyecto(s) en tu lista:\n' + lista + '\n\nACEPTAR = guardarlos TODOS completos en la nube (se pueden reabrir en «Proyectos terminados») y empezar el nuevo con la lista LIMPIA.\nCANCELAR = empezar el nuevo dejando los anteriores en la lista.')) return clickNuevo();
+    terminarVarios(reales.map(function (p) { return p.id; }));
+  }
   function reabrirProyecto(pid) {
     var d = db(); if (!d) return alert('No hay conexión con la nube.');
     d.collection('fichas').doc('PROYECTO-' + pid).get().then(function (m) {
@@ -1068,7 +1108,7 @@
     if (a === 'terminar') return terminarProyecto(sid, false);
     if (a === 'terminarnuevo') return terminarProyecto(sid, true);
     if (a === 'reabrir') return reabrirProyecto(sid);
-    if (a === 'nuevo') { cerrarPanel(); return clickNuevo(); }
+    if (a === 'nuevo') return empezarNuevo();
     if (a === 'deshacer') return deshacerImport();
     if (a === 'limpiar') return limpiarBasura();
     if (a === 'guardarnube') return guardarTodoNube();
@@ -1121,7 +1161,7 @@
         bn.style.cssText = 'position:fixed;left:12px;right:12px;bottom:70px;z-index:10001;background:#065f46;color:#ecfdf5;padding:12px 14px;border-radius:12px;font:600 13px system-ui;box-shadow:0 6px 24px #0008';
         bn.onclick = function () { bn.remove(); }; document.body.appendChild(bn); setTimeout(function () { bn.remove(); }, 12000); }
     } catch (e) {}
-    try { if (sessionStorage.getItem('swsafe_nuevo')) { sessionStorage.removeItem('swsafe_nuevo'); var tn = 0, iv = setInterval(function () { if (clickNuevo() || ++tn > 20) clearInterval(iv); }, 500); } } catch (e) {}
+    try { var _sn = sessionStorage.getItem('swsafe_nuevo'); if (_sn) { sessionStorage.removeItem('swsafe_nuevo'); if (_sn === '0') throw 0; var tn = 0, iv = setInterval(function () { if (clickNuevo() || ++tn > 20) clearInterval(iv); }, 500); } } catch (e) {}
     setTimeout(function () { snap('Al abrir la hoja'); }, 1500);
     setInterval(function () { snap('Automática'); }, 300000);
     podar().then(pillAct);
@@ -1526,7 +1566,7 @@
 
 
 
-const EnhebradoTab = ({ structures }) => {
+const EnhebradoTab = ({ structures, focusId }) => {
     const EKEY = 'swantex_enh_v2';
 
     const [fichaId, setFichaId]     = useState('');
@@ -1561,12 +1601,21 @@ const EnhebradoTab = ({ structures }) => {
         setSelHilo(null);
     }, [fichaId]);
 
-    // Inicializar fichaId con la primera ficha disponible
+    // Inicializar fichaId: la ficha que se esta trabajando (si hay) o la primera
     useEffect(() => {
         if (structures.length > 0 && !fichaId) {
-            setFichaId(structures[0].id);
+            setFichaId((focusId && structures.some(s => s.id === focusId)) ? focusId : structures[0].id);
+        }
+        // si la ficha elegida ya no existe (terminada/borrada), pasar a otra
+        if (fichaId && structures.length > 0 && !structures.some(s => s.id === fichaId)) {
+            setFichaId((focusId && structures.some(s => s.id === focusId)) ? focusId : structures[0].id);
         }
     }, [structures]);
+
+    // Al abrir / crear una ficha en F-CIR-002, el enhebrado pasa a ESA ficha (antes se quedaba en la primera)
+    useEffect(() => {
+        if (focusId && structures.some(s => s.id === focusId)) { setFichaId(focusId); setSelHilo(null); }
+    }, [focusId]);
 
     const saveGrid = (newGrid, na, ng) => {
         const fid = fichaId;
@@ -1756,7 +1805,7 @@ const EnhebradoTab = ({ structures }) => {
                 <div style={{display:'flex', flexWrap:'wrap', gap:8, alignItems:'center'}}>
                     {hilosDisp.length === 0 && (
                         <p style={{color:'#4b5563', fontSize:11, fontStyle:'italic', margin:0}}>
-                            Esta ficha no tiene fibras con título. Edítala en F-CIR-002.
+                            Esta ficha aún no tiene hilos con nombre y título. En F-CIR-002 elige los hilos de esta ficha (y su título) y vuelve aquí.
                         </p>
                     )}
                     {hilosDisp.flatMap((h, hi) => {
@@ -5784,7 +5833,7 @@ const EnhebradoTab = ({ structures }) => {
                 </div>
 
                 <div style={{display: activeTab === 'enhebrado' ? 'block' : 'none'}}>
-                    <EnhebradoTab structures={structures} />
+                    <EnhebradoTab structures={structures} focusId={expandedId} />
                 </div>
             </div>
         );
