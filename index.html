@@ -2691,6 +2691,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
             const nuevo = calcEstructura(ref, ficha.estructura);
             if (nuevo) upd(ficha.id, 'estructura', nuevo);
         }, [ficha && ficha.id, ficha && ficha.fichaRefId, structures, syncTick]);
+        const nombreColUnico = (arr) => { var base='Nueva columna', n=base, i=2; arr=arr||[]; while(arr.indexOf(n)>=0){ n=base+' '+i; i++; } return n; };
         const tallasActivas = ficha
             ? TALLAS_DEF.filter(t=>ficha.tallasCheck[t])
               .concat(ficha.tallaExtra ? [ficha.tallaExtra] : [])
@@ -3232,7 +3233,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                                         <span style={{fontSize:10,fontWeight:700,color:'#3b82f6'}}>ANCHOS (cm)</span>
                                         <button onClick={function(){
-                                            upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).concat('Nueva columna'));
+                                            upd(ficha.id,'anchosActivos',(ficha.anchosActivos||[]).concat(nombreColUnico(ficha.anchosActivos)));
                                         }} style={{padding:'3px 10px',borderRadius:6,background:'#1e3a5f',
                                             color:'#93c5fd',border:'1px solid #3b82f6',fontSize:10,
                                             fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
@@ -3267,7 +3268,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                                         <span style={{fontSize:10,fontWeight:700,color:'#10b981'}}>LARGOS (cm)</span>
                                         <button onClick={function(){
-                                            upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).concat('Nueva columna'));
+                                            upd(ficha.id,'largosActivos',(ficha.largosActivos||[]).concat(nombreColUnico(ficha.largosActivos)));
                                         }} style={{padding:'3px 10px',borderRadius:6,background:'#064e3b',
                                             color:'#6ee7b7',border:'1px solid #10b981',fontSize:10,
                                             fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
@@ -3357,9 +3358,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                             </tr>
                                             {/* FILA 2: diámetro por columna (solo en Anchos — cada col puede tener diam diferente) */}
                                             <tr>
-                                                {anchoCols.map(function(col){
+                                                {anchoCols.map(function(col,ci){
                                                     return (
-                                                        <th key={col} style={{
+                                                        <th key={col+'_'+ci} style={{
                                                             background:'#1e3a5f',color:'#93c5fd',fontSize:9,fontWeight:800,
                                                             padding:'5px 8px',border:'1px solid #374151',
                                                             textAlign:'center',minWidth:120}}>
@@ -3367,9 +3368,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                         </th>
                                                     );
                                                 })}
-                                                {largoCols.map(function(col){
+                                                {largoCols.map(function(col,ci){
                                                     return (
-                                                        <th key={col} style={{
+                                                        <th key={col+'_'+ci} style={{
                                                             background:'#064e3b',color:'#6ee7b7',fontSize:9,fontWeight:800,
                                                             padding:'4px 4px',border:'1px solid #374151',
                                                             textAlign:'center',minWidth:56,whiteSpace:'nowrap'}}>
@@ -3437,10 +3438,10 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                                 {lim.toUpperCase()}
                                                             </td>
                                                             {/* CELDAS DE DATOS */}
-                                                            {allCols.map(function(col){
+                                                            {allCols.map(function(col,ci){
                                                                 var val = (mc[lim]||{})[col]||'';
                                                                 return (
-                                                                    <td key={col} style={{
+                                                                    <td key={col+'_'+ci} style={{
                                                                         border:'1px solid #1f2937',
                                                                         padding:'1px 2px',
                                                                         background: isEdge ? '#1a0a0a' : '#111827'}}>
@@ -4074,7 +4075,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                                                     <span style={{fontSize:10,fontWeight:700,color:'#f59e0b'}}>ANCHOS (cm)</span>
                                                     <button onClick={function(){
-                                                        upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).concat('Nueva columna'));
+                                                        upd(ficha.id,'anchosTermActivos',(ficha.anchosTermActivos||[]).concat(nombreColUnico(ficha.anchosTermActivos)));
                                                     }} style={{padding:'3px 10px',borderRadius:6,background:'#451a03',
                                                         color:'#fcd34d',border:'1px solid #f59e0b',fontSize:10,
                                                         fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
@@ -4107,7 +4108,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
                                                     <span style={{fontSize:10,fontWeight:700,color:'#ec4899'}}>LARGOS (cm)</span>
                                                     <button onClick={function(){
-                                                        upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).concat('Nueva columna'));
+                                                        upd(ficha.id,'largosTermActivos',(ficha.largosTermActivos||[]).concat(nombreColUnico(ficha.largosTermActivos)));
                                                     }} style={{padding:'3px 10px',borderRadius:6,background:'#500724',
                                                         color:'#fbcfe8',border:'1px solid #ec4899',fontSize:10,
                                                         fontWeight:700,cursor:'pointer'}}>+ Añadir</button>
@@ -4187,11 +4188,11 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                             )}
                                                         </tr>
                                                         <tr style={{background:'#0d1520'}}>
-                                                            {anchosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:80,width:80,fontSize:9})}>{col}</th>;
+                                                            {anchosT.map(function(col,ci){
+                                                                return <th key={col+'_'+ci} style={Object.assign({},S.tdH,{color:'#fcd34d',minWidth:80,width:80,fontSize:9})}>{col}</th>;
                                                             })}
-                                                            {largosT.map(function(col){
-                                                                return <th key={col} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:80,width:80,fontSize:9})}>{col}</th>;
+                                                            {largosT.map(function(col,ci){
+                                                                return <th key={col+'_'+ci} style={Object.assign({},S.tdH,{color:'#fbcfe8',minWidth:80,width:80,fontSize:9})}>{col}</th>;
                                                             })}
                                                         </tr>
                                                     </thead>
@@ -4234,10 +4235,10 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                                             background:isEdge?'#200a08':'#111827',whiteSpace:'nowrap'}}>
                                                                             {lim.toUpperCase()}
                                                                         </td>
-                                                                        {allColsT.map(function(col){
+                                                                        {allColsT.map(function(col,ci){
                                                                             var val=(mt[lim]||{})[col]||'';
                                                                             return (
-                                                                                <td key={col} style={{border:'1px solid #1f2937',
+                                                                                <td key={col+'_'+ci} style={{border:'1px solid #1f2937',
                                                                                     padding:'1px 2px',minWidth:80,width:80,
                                                                                     background:isEdge?'#200a08':'#111827'}}>
                                                                                     <input value={val}
