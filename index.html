@@ -45,6 +45,11 @@
         // ── Swantex Config ──────────────────────────────────────
         window.SWANTEX_CONFIG = {
             BASE_URL:        'https://dp522-ops.github.io/swantex-fichas',
+            // Envio de correos por Apps Script (no se vence el permiso ni tiene tope mensual).
+            // Pegue aqui la URL /exec de la implementacion y los correos salen por ahi.
+            // Si queda vacia, sigue usando EmailJS como antes.
+            GAS_URL:         '',
+            GAS_TOKEN:       'swx-fichas-2026',
             EMAILJS_KEY:     'GthShpkKOx_i3gBug',
             EMAILJS_SERVICE: 'service_3erkcak',
             EMAILJS_TPL:     'template_yyd2s6i',
@@ -2107,11 +2112,11 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 name:            'Textiles Swantex SAS',
                 email:           CFG.CORREO_CIRCULARES || '',   // la plantilla usa {{name}} y {{email}} (remitente / responder a)
             };
-            if (!CFG.EMAILJS_KEY || CFG.EMAILJS_KEY === 'TU_PUBLIC_KEY') {
-                console.warn('EmailJS no configurado. Link generado:', link);
+            if (!CFG.GAS_URL && (!CFG.EMAILJS_KEY || CFG.EMAILJS_KEY === 'TU_PUBLIC_KEY')) {
+                console.warn('Correo no configurado. Link generado:', link);
                 return Promise.resolve({ link });
             }
-            window.emailjs.init(CFG.EMAILJS_KEY);
+            if (!CFG.GAS_URL) window.emailjs.init(CFG.EMAILJS_KEY);
             return enviarConPausa(params);
         };
 
@@ -2140,18 +2145,33 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 name:            'Textiles Swantex SAS',
                 email:           CFG.CORREO_CIRCULARES || '',   // la plantilla usa {{name}} y {{email}} (remitente / responder a)
             };
-            if (!CFG.EMAILJS_KEY || CFG.EMAILJS_KEY === 'TU_PUBLIC_KEY') {
-                console.warn('EmailJS no configurado. Link generado:', link);
+            if (!CFG.GAS_URL && (!CFG.EMAILJS_KEY || CFG.EMAILJS_KEY === 'TU_PUBLIC_KEY')) {
+                console.warn('Correo no configurado. Link generado:', link);
                 return Promise.resolve({ link });
             }
-            window.emailjs.init(CFG.EMAILJS_KEY);
+            if (!CFG.GAS_URL) window.emailjs.init(CFG.EMAILJS_KEY);
             return enviarConPausa(params);
+        };
+
+        // Envio por Apps Script: el correo sale de la cuenta de Google del script.
+        // Se manda como text/plain a proposito, para que el navegador no pida CORS previo.
+        const enviarPorGas = async (params, tipo) => {
+            const r = await fetch(CFG.GAS_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(Object.assign({ token: CFG.GAS_TOKEN, tipo: tipo || 'aprobacion' }, params)),
+            });
+            let d = null;
+            try { d = await r.json(); } catch (e) { throw new Error('El servidor de correo respondio algo inesperado (revise que la implementacion este como "Cualquier persona").'); }
+            if (!d.ok) throw new Error(d.error || 'No se pudo enviar el correo');
+            return d;
         };
 
         // EmailJS acepta máx. 1 correo/segundo — esperar entre envíos y reintentar si rechaza (429)
         var __ultimoEnvio = 0;
         const esperar = (ms) => new Promise(function(r){ setTimeout(r, ms); });
         const enviarConPausa = async (params) => {
+            if (CFG.GAS_URL) return enviarPorGas(params, 'aprobacion');
             for (var intento = 0; intento < 4; intento++) {
                 var faltan = 1300 - (Date.now() - __ultimoEnvio);
                 if (faltan > 0) await esperar(faltan);
@@ -2280,10 +2300,8 @@ const EnhebradoTab = ({ structures, focusId }) => {
         };
         /* ── Enviar correo de notificación de firma ── */
         const enviarNotificacionFirma = (ficha, nombreFirmante, rol, totalFirmas, firmasReq) => {
-            if (!CFG.EMAILJS_KEY || !CFG.EMAILJS_SERVICE) return;
-            const tplNotif = CFG.EMAILJS_TPL_NOTIF || CFG.EMAILJS_TPL;
-            window.emailjs.init(CFG.EMAILJS_KEY);
-            window.emailjs.send(CFG.EMAILJS_SERVICE, tplNotif, {
+            if (!CFG.GAS_URL && (!CFG.EMAILJS_KEY || !CFG.EMAILJS_SERVICE)) return;
+            const datosFirma = {
                 to_email:      CFG.CORREO_CIRCULARES,
                 nombre_firmante: nombreFirmante,
                 rol:           rol,
@@ -2292,7 +2310,11 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 firmas_ok:     String(totalFirmas),
                 firmas_req:    String(firmasReq),
                 estado:        totalFirmas>=firmasReq?'✅ LISTA PARA PDF':'⏳ Pendiente '+String(firmasReq-totalFirmas)+' firma(s)',
-            }).catch(e=>console.warn('Notif email error:',e));
+            };
+            if (CFG.GAS_URL) { enviarPorGas(datosFirma, 'firma').catch(e=>console.warn('Notif email error:',e)); return; }
+            const tplNotif = CFG.EMAILJS_TPL_NOTIF || CFG.EMAILJS_TPL;
+            window.emailjs.init(CFG.EMAILJS_KEY);
+            window.emailjs.send(CFG.EMAILJS_SERVICE, tplNotif, datosFirma).catch(e=>console.warn('Notif email error:',e));
         };
 
 
