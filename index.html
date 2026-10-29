@@ -2062,6 +2062,20 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 return tl.join('-');
             } catch(e) { return ''; }
         };
+        /* Una ficha "vacia" es la que se creo y nunca se lleno: sin producto, sin
+           codigos, sin tallas y sin medidas. No se envia a firmar ni se arrastra en
+           los enlaces combinados. */
+        const fichaVacia = (f) => {
+            if (!f) return true;
+            const txt = function(v){ return (v||'').toString().trim(); };
+            if (txt(f.producto) || txt(f.lcc) || txt(f.tem) || txt(f.programas) || txt(f.fichaRefId) || txt(f.cantidad)) return false;
+            const conDatos = function(o){ return o && typeof o === 'object' && Object.keys(o).length > 0; };
+            if (conDatos(f.medidasReposo) || conDatos(f.medidasCrudo) || conDatos(f.medidasTerminado)) return false;
+            if (f.tallasCheck && Object.keys(f.tallasCheck).some(function(t){ return f.tallasCheck[t]; })) return false;
+            if (Array.isArray(f.estructura) && f.estructura.length) return false;
+            if (Array.isArray(f.complementos) && f.complementos.length) return false;
+            return true;
+        };
         const nombreFichaCorto = (ficha) => {
             var t = tallasDeFicha(ficha);
             return (ficha.producto || 'Sin producto') + (t ? ' (' + t + ')' : '');
@@ -2372,6 +2386,8 @@ const EnhebradoTab = ({ structures, focusId }) => {
                     setFichas([]);
                     Promise.all(idsAprob.map(function(id){ return fbLeerFicha(id); })).then(function(lista) {
                         var encontradas = lista.filter(Boolean);
+                        var conInfo = encontradas.filter(function(f){ return !fichaVacia(f); });
+                        if (conInfo.length) encontradas = conInfo;   // enlaces viejos que traian fichas en blanco
                         if (encontradas.length > 0) {
                             setFichas(encontradas);
                             setActivaId(encontradas[0].id);
@@ -3621,7 +3637,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                     <button
                                         disabled={enviandoTodas||enviando}
                                         onClick={async function(){
-                                            var fichasCopy = fichas.slice();
+                                            var fichasCopy = fichas.filter(function(f){ return !fichaVacia(f); });
+                                            var vaciasOmitidas = fichas.length - fichasCopy.length;
+                                            if (!fichasCopy.length) { setResultadoTodas({ok:false,msg:'No hay fichas con informacion para enviar.'}); return; }
                                             setEnviandoTodas(true);
                                             setResultadoTodas(null);
                                             var errores = [];
@@ -3774,7 +3792,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                 const claveFicha = (f) => norm(f.tem) || norm(f.programas) || norm(f.producto);
                                 const clave = claveFicha(ficha);
                                 const fichasRelacionadas = clave
-                                    ? fichas.filter(function(f){ return claveFicha(f)===clave; })
+                                    ? fichas.filter(function(f){ return claveFicha(f)===clave && !fichaVacia(f); })
                                     : [];
                                 if (fichasRelacionadas.length < 2) return null;
                                 return (
@@ -5608,52 +5626,69 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             y+=7;
                             const aC=(ft.anchosActivos||[]).concat(ft.anchoExtra?[ft.anchoExtra]:[]);
                             const lC=(ft.largosActivos||[]).concat(ft.largoExtra?[ft.largoExtra]:[]);
-                            const allC=[].concat(aC,lC);
+                            const allC=aC.map(function(c){return {n:c,a:true};}).concat(lC.map(function(c){return {n:c,a:false};}));
                             if(allC.length>0){
                                 const lblW=36;
-                                /* Give each col enough width for notes — min 28mm */
-                                const colW=Math.max(28,(CW-lblW)/allC.length);
-                                /* Group headers */
-                                sf('#1e3a5f'); doc.rect(ML+lblW,y,aC.length*colW,5.5,'F');
-                                sf('#064e3b'); doc.rect(ML+lblW+aC.length*colW,y,lC.length*colW,5.5,'F');
-                                B(7,'#93c5fd'); doc.text('ANCHOS (cm)',ML+lblW+aC.length*colW/2,y+3.8,{align:'center'});
-                                B(7,'#6ee7b7'); doc.text('LARGOS (cm)',ML+lblW+aC.length*colW+lC.length*colW/2,y+3.8,{align:'center'});
-                                y+=5.5;
-                                /* Col name headers */
-                                sf('#1f2937'); doc.rect(ML,y,CW,6.5,'F');
-                                B(6,'#9ca3af');
-                                doc.text('TALLA',ML+2,y+4.5); doc.text('LÍM.',ML+16,y+4.5); doc.text('DIÁM.',ML+26,y+4.5);
-                                allC.forEach((col,ci)=>{
-                                    B(6.5,ci<aC.length?'#93c5fd':'#6ee7b7');
-                                    const t=col.length>12?col.slice(0,11)+'…':col;
-                                    doc.text(t,ML+lblW+ci*colW+colW/2,y+4.5,{align:'center'});
-                                });
-                                y+=6.5;
-                                tallasOk.filter(t=>ft.medidasCrudo[t]).forEach(talla=>{
-                                    y=checkPage(y,20);
-                                    const mc=ft.medidasCrudo[talla]||{};
-                                    const diam=mc['__diam__']||'';
-                                    const rowH=8;
-                                    ['min','prom','max'].forEach((lim,li)=>{
-                                        const isE=lim!=='prom';
-                                        sf(isE?'#1a0a0a':'#111827'); doc.rect(ML,y,CW,rowH,'F');
-                                        if(li===0){ B(9,'#f1f5f9'); doc.text(talla,ML+2,y+5.5); B(7,'#3b82f6'); doc.text(diam,ML+26,y+5.5); }
-                                        if(isE) B(7,'#ef4444'); else B(7,'#9ca3af');
-                                        doc.text(lim.toUpperCase(),ML+16,y+5.5);
-                                        allC.forEach((col,ci)=>{
-                                            const v=String(((mc[lim]||{})[col])||'');
-                                            /* Wide cell — show full note text */
-                                            const max=Math.floor(colW/2.05);
-                                            if(isE) B(7.5,'#ef4444'); else N(7.5,'#e2e8f0');
-                                            const disp=v.length>max?v.slice(0,max-1)+'…':v;
-                                            doc.text(disp,ML+lblW+ci*colW+colW/2,y+5.5,{align:'center'});
-                                        });
-                                        y+=rowH;
+                                /* Cada columna necesita al menos 19 mm para leerse. Si no caben
+                                   todas en el ancho util, la tabla se parte en bloques: el mismo
+                                   grupo de tallas se repite con las columnas que faltan, en vez
+                                   de salirse de la hoja y perder informacion. */
+                                const MINCOL=19;
+                                const porBloque=Math.max(1,Math.floor((CW-lblW)/MINCOL));
+                                const bloques=[];
+                                for(let bi=0;bi<allC.length;bi+=porBloque) bloques.push(allC.slice(bi,bi+porBloque));
+                                bloques.forEach(function(cols,bi){
+                                    const colW=(CW-lblW)/cols.length;
+                                    const nA=cols.filter(function(c){return c.a;}).length;
+                                    const nL=cols.length-nA;
+                                    y=checkPage(y,34);
+                                    if(bi>0){
+                                        sf('#14532d'); doc.rect(ML,y,CW,5,'F');
+                                        B(6.5,'#86efac'); doc.text('3. MEDIDAS EN CRUDO (continuacion '+(bi+1)+' de '+bloques.length+')',ML+4,y+3.5);
+                                        y+=5;
+                                    }
+                                    /* Encabezados de grupo */
+                                    if(nA>0){ sf('#1e3a5f'); doc.rect(ML+lblW,y,nA*colW,5.5,'F');
+                                              B(7,'#93c5fd'); doc.text('ANCHOS (cm)',ML+lblW+nA*colW/2,y+3.8,{align:'center'}); }
+                                    if(nL>0){ sf('#064e3b'); doc.rect(ML+lblW+nA*colW,y,nL*colW,5.5,'F');
+                                              B(7,'#6ee7b7'); doc.text('LARGOS (cm)',ML+lblW+nA*colW+nL*colW/2,y+3.8,{align:'center'}); }
+                                    y+=5.5;
+                                    /* Nombres de columna */
+                                    sf('#1f2937'); doc.rect(ML,y,CW,6.5,'F');
+                                    B(6,'#9ca3af');
+                                    doc.text('TALLA',ML+2,y+4.5); doc.text('LIM.',ML+16,y+4.5); doc.text('DIAM.',ML+26,y+4.5);
+                                    cols.forEach(function(col,ci){
+                                        B(6.5,col.a?'#93c5fd':'#6ee7b7');
+                                        const maxch=Math.max(6,Math.floor(colW/1.6));
+                                        const t=col.n.length>maxch?col.n.slice(0,maxch-1)+'…':col.n;
+                                        doc.text(t,ML+lblW+ci*colW+colW/2,y+4.5,{align:'center'});
                                     });
-                                    sd('#14532d'); doc.setLineWidth(0.4); doc.line(ML,y,ML+CW,y); doc.setLineWidth(0.1);
-                                    y+=1;
+                                    y+=6.5;
+                                    tallasOk.filter(function(t){return ft.medidasCrudo[t];}).forEach(function(talla){
+                                        y=checkPage(y,26);
+                                        const mc=ft.medidasCrudo[talla]||{};
+                                        const diam=mc['__diam__']||'';
+                                        const rowH=8;
+                                        ['min','prom','max'].forEach(function(lim,li){
+                                            const isE=lim!=='prom';
+                                            sf(isE?'#1a0a0a':'#111827'); doc.rect(ML,y,CW,rowH,'F');
+                                            if(li===0){ B(9,'#f1f5f9'); doc.text(talla,ML+2,y+5.5); B(7,'#3b82f6'); doc.text(diam,ML+26,y+5.5); }
+                                            if(isE) B(7,'#ef4444'); else B(7,'#9ca3af');
+                                            doc.text(lim.toUpperCase(),ML+16,y+5.5);
+                                            cols.forEach(function(col,ci){
+                                                const v=String(((mc[lim]||{})[col.n])||'');
+                                                const max=Math.floor(colW/2.05);
+                                                if(isE) B(7.5,'#ef4444'); else N(7.5,'#e2e8f0');
+                                                const disp=v.length>max?v.slice(0,max-1)+'…':v;
+                                                doc.text(disp,ML+lblW+ci*colW+colW/2,y+5.5,{align:'center'});
+                                            });
+                                            y+=rowH;
+                                        });
+                                        sd('#14532d'); doc.setLineWidth(0.4); doc.line(ML,y,ML+CW,y); doc.setLineWidth(0.1);
+                                        y+=1;
+                                    });
+                                    y+=4;
                                 });
-                                y+=4;
                             }
                         }
 
