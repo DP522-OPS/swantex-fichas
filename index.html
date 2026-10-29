@@ -806,19 +806,24 @@
     if (!gs.length) { alert('Ese archivo no trae fichas.'); return; }
     var ov = document.createElement('div'); ov.id = 'swsafe-ov2'; ov.className = 'no-print';
     var h = '<div id="swsafe-box"><h2>Fichas dentro de «' + esc(nombre) + '»</h2>' +
-      '<div class="m">Marca las que quieres traer. Cada una llega <b>completa</b> (precosteo, medidas y enhebrado), <b>sin mezclarse</b>. Si ya tienes esa ficha, la del archivo la reemplaza y la anterior queda en la papelera: <b>nunca se crean copias</b>.</div><table style="margin-top:8px">';
+      '<div class="m">Marca <b>solo</b> las que quieres traer: lo que no marques no entra, para que no se cuele nada del archivo. Cada una llega <b>completa</b> (precosteo, medidas y enhebrado), <b>sin mezclarse</b>. Si ya tienes esa ficha, la del archivo la reemplaza y la anterior queda en la papelera: <b>nunca se crean copias</b>.</div><table style="margin-top:8px">';
     gs.forEach(function (g, i) {
       var p = g.p, f = g.fts[0];
       var nm = p ? (p.nombrePrenda || p.id) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : '') + (p.header && p.header.talla ? ' · ' + p.header.talla : '') : 'Medidas: ' + (f.producto || f.lcc || f.id);
       var tag = (p ? '<span class="ok">precosteo ✓</span> ' : '') + (g.fts.length ? '<span class="ok">medidas ✓</span> ' : '') + (g.e ? '<span class="ok">enhebrado ✓</span>' : '');
       var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya la tienes: la del archivo la REEMPLAZA (la actual queda en la papelera)</span>';
-      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado !== 'igual' ? ' checked' : '') + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
+      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
     });
-    h += '</table><div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="no">Cancelar</button></div></div>';
+    h += '</table><div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="todas">Marcar todas</button> <button class="g" data-b="ninguna">Desmarcar</button> <button class="g" data-b="no">Cancelar</button></div></div>';
     ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
     ov.addEventListener('click', function (e) {
       var b = e.target.closest ? e.target.closest('[data-b]') : null; if (!b) return;
-      if (b.getAttribute('data-b') === 'no') return ov.remove();
+      var acc = b.getAttribute('data-b');
+      if (acc === 'no') return ov.remove();
+      if (acc === 'todas' || acc === 'ninguna') {
+        ov.querySelectorAll('input[data-i]').forEach(function (c) { if (!c.disabled) c.checked = (acc === 'todas'); });
+        return;
+      }
       var sel = []; ov.querySelectorAll('input[data-i]').forEach(function (c) { if (c.checked) sel.push(gs[parseInt(c.getAttribute('data-i'), 10)]); });
       if (!sel.length) return alert('No marcaste ninguna ficha.');
       ov.remove(); traer(sel);
@@ -1218,7 +1223,7 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', iniciar); else iniciar();
 
   window.SWSAFE = { mergeFicha: mergeFicha, papelera: papelera, guardarPrecosteo: guardarPrecosteo, ftCambio: ftCambio, enhCambio: enhCambio,
-    snap: function (m) { return snap(m || 'Manual'); }, importarArchivo: importarArchivo, descargar: descargar, abrirPanel: abrirPanel, _t: { hall: function(){return hallazgo;}, rich: rich, planear: planear, normalizar: normalizar, escanearNube: escanearNube, mergeDeep: mergeDeep } };
+    snap: function (m) { return snap(m || 'Manual'); }, importarArchivo: importarArchivo, descargar: descargar, abrirPanel: abrirPanel, _t: { hall: function(){return hallazgo;}, rich: rich, planear: planear, normalizar: normalizar, escanearNube: escanearNube, mergeDeep: mergeDeep, dialogoImport: dialogoImport, traer: traer } };
 })();
 
     </script>
@@ -4835,6 +4840,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
         const duplicateStructure = (origen) => {
             const copia = JSON.parse(JSON.stringify(origen));
             copia.id = 'SW-' + Date.now().toString(36).toUpperCase();
+            copia.status = 'PENDIENTE';          // la copia arranca sin aprobar, aunque el original estuviera aprobado
+            copia.createdAt = Date.now();
+            copia.updatedAt = Date.now();
             if (copia.header) {
                 copia.header.status = 'BORRADOR';
                 copia.header.createdAt = Date.now();
