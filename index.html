@@ -769,8 +769,20 @@
     });
     return gs;
   }
-  function traer(sel) {
-    var loc = leerLocal(), out = { P: loc.P.slice(), F: loc.F.slice(), E: Object.assign({}, loc.E) }, stamps = {}, quitar = { P: [], F: [], E: {} };
+  function traer(sel, soloLasTraidas) {
+    var loc = leerLocal(), stamps = {}, quitar = { P: [], F: [], E: {} }, out;
+    if (soloLasTraidas) {
+      /* "Dejar solo las que traigo": la lista arranca vacia y todo lo que ya
+         estaba pasa a la papelera (se puede recuperar desde el panel). */
+      var queda = {}, quedaF = {};
+      sel.forEach(function (g) { if (g.p) queda[g.p.id] = 1; g.fts.forEach(function (f) { quedaF[f.id] = 1; }); });
+      out = { P: [], F: [], E: {} };
+      loc.P.forEach(function (x) { if (x && x.id && !queda[x.id]) quitar.P.push(x); });
+      loc.F.forEach(function (f) { if (f && f.id && !quedaF[f.id]) quitar.F.push(f); });
+      Object.keys(loc.E || {}).forEach(function (k) { if (!queda[k]) quitar.E[k] = loc.E[k]; });
+    } else {
+      out = { P: loc.P.slice(), F: loc.F.slice(), E: Object.assign({}, loc.E) };
+    }
     sel.forEach(function (g) {
       if (g.estado === 'igual') return;
       if (g.p) {
@@ -804,6 +816,7 @@
   function dialogoImport(inc, nombre) {
     var gs = grupos(inc, leerLocal());
     if (!gs.length) { alert('Ese archivo no trae fichas.'); return; }
+    var yaHay = (leerLocal().P || []).length;
     var ov = document.createElement('div'); ov.id = 'swsafe-ov2'; ov.className = 'no-print';
     var h = '<div id="swsafe-box"><h2>Fichas dentro de «' + esc(nombre) + '»</h2>' +
       '<div class="m">Marca <b>solo</b> las que quieres traer: lo que no marques no entra, para que no se cuele nada del archivo. Cada una llega <b>completa</b> (precosteo, medidas y enhebrado), <b>sin mezclarse</b>. Si ya tienes esa ficha, la del archivo la reemplaza y la anterior queda en la papelera: <b>nunca se crean copias</b>.</div><table style="margin-top:8px">';
@@ -814,7 +827,12 @@
       var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya la tienes: la del archivo la REEMPLAZA (la actual queda en la papelera)</span>';
       h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
     });
-    h += '</table><div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="todas">Marcar todas</button> <button class="g" data-b="ninguna">Desmarcar</button> <button class="g" data-b="no">Cancelar</button></div></div>';
+    h += '</table>' +
+      '<label class="m" style="display:block;margin-top:10px;padding:8px 10px;border:1px solid #334155;border-radius:6px;cursor:pointer">' +
+      '<input type="checkbox" data-solo> <b>Dejar solo las fichas que traigo.</b> ' +
+      'Ahora tienes <b>' + yaHay + '</b> ficha(s) en tu lista; con esto las demas pasan a la papelera y puedes recuperarlas desde el panel. ' +
+      'Sin marcar, lo que traes se suma a lo que ya tienes.</label>';
+    h += '<div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="todas">Marcar todas</button> <button class="g" data-b="ninguna">Desmarcar</button> <button class="g" data-b="no">Cancelar</button></div></div>';
     ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
     ov.addEventListener('click', function (e) {
       var b = e.target.closest ? e.target.closest('[data-b]') : null; if (!b) return;
@@ -826,7 +844,9 @@
       }
       var sel = []; ov.querySelectorAll('input[data-i]').forEach(function (c) { if (c.checked) sel.push(gs[parseInt(c.getAttribute('data-i'), 10)]); });
       if (!sel.length) return alert('No marcaste ninguna ficha.');
-      ov.remove(); traer(sel);
+      var solo = !!(ov.querySelector('[data-solo]') && ov.querySelector('[data-solo]').checked);
+      if (solo && !confirm('Tu lista va a quedar solo con las ' + sel.length + ' ficha(s) marcadas.\nLas demas pasan a la papelera y se pueden recuperar. Seguir?')) return;
+      ov.remove(); traer(sel, solo);
     });
     document.body.appendChild(ov);
   }
