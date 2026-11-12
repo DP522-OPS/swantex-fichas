@@ -1617,6 +1617,21 @@ const EnhebradoTab = ({ structures, focusId }) => {
         } catch(e) { setAllData({}); }
     }, []);
 
+    // Otra ventana guardo enhebrados: se toman aqui (y se refresca el de la ficha abierta)
+    useEffect(() => {
+        const h = (e) => {
+            if (e.key !== EKEY || e.newValue == null) return;
+            try {
+                const p = JSON.parse(e.newValue) || {};
+                setAllData(p);
+                const v = fichaId && p[fichaId];
+                if (v) { setGrid(v.grid || {}); setNumAlim(v.numAlim || 8); setNumGH(v.numGH || 9); }
+            } catch(_) {}
+        };
+        window.addEventListener('storage', h);
+        return () => window.removeEventListener('storage', h);
+    }, [fichaId]);
+
     // Cuando cambia fichaId, cargar su configuración
     useEffect(() => {
         if (!fichaId) return;
@@ -2393,6 +2408,15 @@ const EnhebradoTab = ({ structures, focusId }) => {
             try { localStorage.setItem(SKEY, JSON.stringify(data)); } catch(e){}
             try { if (window.SWSAFE) window.SWSAFE.ftCambio(data); } catch(e){}
         };
+        // Otra ventana guardo fichas de medidas (o llego una firma alla): se toman aqui tambien
+        useEffect(() => {
+            const h = (e) => {
+                if (e.key !== SKEY || e.newValue == null || window.__swantex_modo_aprobacion) return;
+                try { const p = JSON.parse(e.newValue); if (Array.isArray(p)) setFichas(p); } catch(_) {}
+            };
+            window.addEventListener('storage', h);
+            return () => window.removeEventListener('storage', h);
+        }, []);
         useEffect(()=>{
             // ── Detectar modo aprobación PRIMERO ──────────────────
             var esModoAprobacion = false;
@@ -4626,6 +4650,16 @@ const EnhebradoTab = ({ structures, focusId }) => {
         const persist = useCallback((data) => {
             setStructures(data);
             try { localStorage.setItem(STORAGE_KEY, JSON.stringify(data)); } catch(e) {}
+        }, []);
+        // Varias ventanas abiertas: lo que se guarda en una aparece de inmediato en las demas,
+        // asi ninguna pisa la lista de la otra con una copia vieja.
+        useEffect(() => {
+            const h = (e) => {
+                if (e.key !== STORAGE_KEY || e.newValue == null || window.__swantex_modo_aprobacion) return;
+                try { const p = JSON.parse(e.newValue); if (Array.isArray(p)) setStructures(p); } catch(_) {}
+            };
+            window.addEventListener('storage', h);
+            return () => window.removeEventListener('storage', h);
         }, []);
 
         /* ── Sincronización a la nube (Firestore: colección "fichas", la
