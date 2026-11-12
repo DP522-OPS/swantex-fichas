@@ -1276,6 +1276,7 @@
         { tipo:'Nylon Rig', titulo:'Nylon Rig Tilobal 70/48B',dtex:70, lote:'FJC704820',  itemS:'9748', itemZ:'', proveedor:'Fujian' },
         { tipo:'Nylon Rig', titulo:'Nylon 20/7 Rígido',      dtex:20,  lote:'FJC20730',   itemS:'2125', itemZ:'', proveedor:'Fujian' },
         { tipo:'Nylon Rig', titulo:'Nylon 10/3 Rígido',      dtex:10,  lote:'RFJ10390S',  itemS:'2121', itemZ:'', proveedor:'Fujian' },
+        { tipo:'Nylon Rig', titulo:'Lurex 100/1 Silver',     dtex:100, lote:'C78-PLATA',  itemS:'9309-7800', itemZ:'', proveedor:'De Monte', etiqueta:'Metalizado' },
         // ── Lycra cubierta — dtex efectivo = (den×1.111/3.5) + dtexCob ─
         { tipo:'Lycra', titulo:'Lycra 22-22-7',  denNucleo:22, dtexCob:22, dtex:28.97, lote:'OS-958', itemS:'6085', itemZ:'6086', proveedor:'Fujian' },
         { tipo:'Lycra', titulo:'Lycra 22-22-7',  denNucleo:22, dtexCob:22, dtex:28.97, lote:'OS-973', itemS:'2377', itemZ:'2378', proveedor:'Fujian' },
@@ -1310,6 +1311,12 @@
         'Poliester':  'Poliéster',
         'Modal':      'Modal',
         'Jaspe':      'Poliamida/Poliéster',
+    };
+
+    // Nombre en la etiqueta: el del hilo si lo trae (ej. Lurex = Metalizado), si no el del tipo
+    const etiquetaFibra = (f) => {
+        const p = HILOS_DB.find(x => x.tipo===f.nombre && x.titulo===f.titulo);
+        return (p && p.etiqueta) || NOMBRE_ETIQUETA[f.nombre] || f.nombre;
     };
 
     const COLORS_BY_TYPE = {
@@ -6042,7 +6049,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
             const items = s.fibras
                 .filter(f=>f.porcentaje>0 && f.titulo)
                 .sort((a,b)=>b.porcentaje-a.porcentaje)
-                .map(f=>`${f.porcentaje}% ${NOMBRE_ETIQUETA[f.nombre]||f.nombre}`);
+                .map(f=>`${f.porcentaje}% ${etiquetaFibra(f)}`);
             return items.join(' / ');
         })();
 
@@ -6459,7 +6466,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
         const esSp       = esSpandexDesnudo(f.nombre, f.titulo);
         const hayTitulo  = f.titulo && f.titulo!=='';
         const diffSug    = sugerido !== null && sugerido !== undefined && hayTitulo && sugerido !== f.porcentaje;
-        const nombreEtiq = NOMBRE_ETIQUETA[f.nombre] || f.nombre;
+        const nombreEtiq = etiquetaFibra(f);
 
         return (
             <div className="fiber-card" style={{borderLeft:`3px solid ${col}`}}>
