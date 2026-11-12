@@ -825,13 +825,13 @@
       var nm = p ? (p.nombrePrenda || p.id) + (p.header && p.header.referencia ? ' · ' + p.header.referencia : '') + (p.header && p.header.talla ? ' · ' + p.header.talla : '') : 'Medidas: ' + (f.producto || f.lcc || f.id);
       var tag = (p ? '<span class="ok">precosteo ✓</span> ' : '') + (g.fts.length ? '<span class="ok">medidas ✓</span> ' : '') + (g.e ? '<span class="ok">enhebrado ✓</span>' : '');
       var est = g.estado === 'igual' ? '<span class="m">Ya la tienes igual</span>' : g.estado === 'nueva' ? '<b style="color:#6ee7b7">Nueva</b>' : '<span class="wa">Ya la tienes: la del archivo la REEMPLAZA (la actual queda en la papelera)</span>';
-      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'igual' ? ' disabled' : '') + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
+      h += '<tr><td><input type="checkbox" data-i="' + i + '"' + (g.estado === 'igual' ? ' disabled' : (gs.length === 1 ? ' checked' : '')) + '></td><td><b>' + esc(nm) + '</b><br>' + tag + '</td><td>' + est + '</td></tr>';
     });
     h += '</table>' +
       '<label class="m" style="display:block;margin-top:10px;padding:8px 10px;border:1px solid #334155;border-radius:6px;cursor:pointer">' +
-      '<input type="checkbox" data-solo> <b>Dejar solo las fichas que traigo.</b> ' +
-      'Ahora tienes <b>' + yaHay + '</b> ficha(s) en tu lista; con esto las demas pasan a la papelera y puedes recuperarlas desde el panel. ' +
-      'Sin marcar, lo que traes se suma a lo que ya tienes.</label>';
+      '<input type="checkbox" data-solo' + (yaHay ? ' checked' : '') + '> <b>Dejar en la lista solo las fichas que traigo.</b> ' +
+      'Ahora tienes <b>' + yaHay + '</b> ficha(s) en tu lista: se guardan completas en la nube y pasan a «Proyectos terminados» (Producción las sigue viendo y las puedes reabrir). ' +
+      'Desmarca esto solo si quieres que lo que traes se SUME a lo que ya tienes.</label>';
     h += '<div style="margin-top:10px"><button data-b="ok">Traer las marcadas</button> <button class="g" data-b="todas">Marcar todas</button> <button class="g" data-b="ninguna">Desmarcar</button> <button class="g" data-b="no">Cancelar</button></div></div>';
     ov.innerHTML = h; ov.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#000c;display:flex;align-items:flex-start;justify-content:center;overflow:auto;padding:16px';
     ov.addEventListener('click', function (e) {
@@ -845,10 +845,23 @@
       var sel = []; ov.querySelectorAll('input[data-i]').forEach(function (c) { if (c.checked) sel.push(gs[parseInt(c.getAttribute('data-i'), 10)]); });
       if (!sel.length) return alert('No marcaste ninguna ficha.');
       var solo = !!(ov.querySelector('[data-solo]') && ov.querySelector('[data-solo]').checked);
-      if (solo && !confirm('Tu lista va a quedar solo con las ' + sel.length + ' ficha(s) marcadas.\nLas demas pasan a la papelera y se pueden recuperar. Seguir?')) return;
-      ov.remove(); traer(sel, solo);
+      ov.remove();
+      if (!solo) return traer(sel, false);
+      importarSolo(sel);
     });
     document.body.appendChild(ov);
+  }
+  /* Importar dejando en la lista solo lo que se trae: lo que habia se TERMINA (queda completo
+     en la nube y en «Proyectos terminados»), nunca se borra de la nube. */
+  function importarSolo(sel) {
+    if (!db()) return alert('No hay conexión con la nube: no puedo guardar las fichas que tienes abiertas.\nConéctate y vuelve a importar, o desmarca «Dejar en la lista solo las fichas que traigo».');
+    var traidos = {}, claves = {};
+    sel.forEach(function (g) { if (g.p) { traidos[g.p.id] = 1; if (claveP(g.p)) claves[claveP(g.p)] = 1; } });
+    var otros = (leerLocal().P || []).filter(function (x) {
+      return x && x.id && !traidos[x.id] && !(claveP(x) && claves[claveP(x)]) && !esVacia(x);
+    }).map(function (x) { return x.id; });
+    guardarTerminados(otros, 'Antes de importar').then(function () { return traer(sel, true); })
+      .catch(function (er) { alert('No se importó (tu lista quedó como estaba): ' + (er.message || er)); });
   }
   function importarArchivo(file) {
     var r = new FileReader();
@@ -929,11 +942,22 @@
   }
   function terminarVarios(pids) {
     var d = db(); if (!d) return alert('No hay conexión con la nube. Para guardar los proyectos y empezar limpio tiene que haber conexión.');
+    guardarTerminados(pids, 'Antes de empezar proyecto nuevo').then(function (n) {
+      try { sessionStorage.setItem('swsafe_nuevo', '0'); } catch (er) {}   // '0': la app crea sola la ficha en blanco al quedar vacía
+      lastHash = null; snap('Después de guardar ' + n + ' proyecto(s) y empezar nuevo');
+      setTimeout(function () { location.reload(); }, 600);
+    }).catch(function (er) { alert('No se empezó el proyecto nuevo (no se quitó nada de tu lista): ' + (er.message || er)); });
+  }
+  /* Guarda completos en la nube (precosteo, medidas, enhebrado), los pasa a «Proyectos terminados»
+     y los quita de la lista de trabajo. SWAN2 los sigue viendo. No recarga la página. */
+  function guardarTerminados(pids, motivo) {
+    var d = db(); if (!d) return Promise.reject(new Error('No hay conexión con la nube'));
     var L = leerLocal(), ps = (L.P || []).filter(function (x) { return pids.indexOf(x.id) >= 0; });
     var plan = ps.map(function (p) {
       return { p: p, fts: (L.F || []).filter(function (f) { return f.fichaRefId === p.id; }), e: L.E && L.E[p.id] && rich(L.E[p.id].grid) > 0 ? L.E[p.id] : null };
     });
-    snapSeguro('Antes de empezar proyecto nuevo').then(function () {
+    if (!ps.length) return Promise.resolve(0);
+    return snapSeguro(motivo).then(function () {
       var t = [];
       plan.forEach(function (x) { t.push(guardarPrecosteo(x.p)); x.fts.forEach(function (f) { t.push(pushFT(f)); }); if (x.e) t.push(pushEnh(x.p.id, x.e)); });
       return Promise.all(t);
@@ -954,10 +978,8 @@
       wr(KP, JSON.stringify((L.P || []).filter(function (x) { return pids.indexOf(x.id) < 0 && !esVacia(x); })));
       wr(KF, JSON.stringify((L.F || []).filter(function (f) { return !ids[f.id]; })));
       wr(KE, JSON.stringify(E2));
-      try { sessionStorage.setItem('swsafe_nuevo', '0'); } catch (er) {}   // '0': la app crea sola la ficha en blanco al quedar vacía
-      lastHash = null; snap('Después de guardar ' + plan.length + ' proyecto(s) y empezar nuevo');
-      setTimeout(function () { location.reload(); }, 600);
-    }).catch(function (er) { alert('No se empezó el proyecto nuevo (no se quitó nada de tu lista): ' + (er.message || er)); });
+      return plan.length;
+    });
   }
   function empezarNuevo() {
     var reales = (leerLocal().P || []).filter(function (p) { return p && p.id && !esVacia(p); });
