@@ -2763,7 +2763,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 // Only auto-sync approval fields to Firebase
                 // (medidas filled by jefatura stay local — elaborador syncs manually)
                 const approvalFields = ['aproboArmado','aproboCorseteria','aproboCalidad','aproboDiseno'];
-                const elaboradorFields = ['anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
+                const elaboradorFields = ['partesReposo','anchosActivos','largosActivos','anchosTermActivos','largosTermActivos',
                     'medidasCrudo','medidasReposo','medidasTerminado','confeccion','estructura',
                     'colorProduccion','condicionesDoblado','complementos'];
                 if (approvalFields.indexOf(field) >= 0) {
@@ -2904,6 +2904,35 @@ const EnhebradoTab = ({ structures, focusId }) => {
             mr[talla][parte][campo] = val;
             upd(fichaId,'medidasReposo',mr);
         };
+        /* ── Partes del punto 2 (editables por ficha: media, calcetín, prenda…) ── */
+        const partesDe = (f) => (f && Array.isArray(f.partesReposo)) ? f.partesReposo : PARTES_REPOSO;
+        const setPartes = (fichaId, arr) => upd(fichaId, 'partesReposo', arr);
+        const renombrarParte = (fichaId, idx, nuevo) => {
+            const f = fichas.find(x=>x.id===fichaId); if (!f) return;
+            const partes = partesDe(f).slice(), viejo = partes[idx];
+            partes[idx] = nuevo;
+            // las medidas ya escritas se van con la parte al nuevo nombre
+            const mr = JSON.parse(JSON.stringify(f.medidasReposo||{}));
+            const enUso = partes.some((p,i)=>i!==idx && (p===viejo || p===nuevo));  // nunca pisar medidas de otra parte
+            Object.keys(mr).forEach(t => {
+                if (mr[t] && mr[t][viejo] && !enUso) { mr[t][nuevo] = mr[t][viejo]; delete mr[t][viejo]; }
+            });
+            setFichas(prev => {
+                const n = prev.map(x => x.id===fichaId ? Object.assign({}, x, {partesReposo: partes, medidasReposo: mr}) : x);
+                save(n);
+                return n;
+            });
+        };
+        const quitarParte = (fichaId, idx) => {
+            const f = fichas.find(x=>x.id===fichaId); if (!f) return;
+            const partes = partesDe(f), p = partes[idx];
+            const conDatos = Object.keys(f.medidasReposo||{}).some(t => {
+                const d = (f.medidasReposo[t]||{})[p]; return d && (d.min||d.prom||d.max);
+            });
+            if (conDatos && !window.confirm('La parte "' + p + '" tiene medidas escritas. ¿Quitarla?')) return;
+            setPartes(fichaId, partes.filter((_,i)=>i!==idx));
+        };
+
         const updReposoDiam = (fichaId, talla, val) => {
             const f = fichas.find(x=>x.id===fichaId);
             if (!f) return;
@@ -3485,6 +3514,31 @@ const EnhebradoTab = ({ structures, focusId }) => {
                         {/* ─── 2. MEDIDAS EN REPOSO ─── */}
                         <div style={{background:'#111827',border:'1px solid #1f2937',borderRadius:12,overflow:'hidden',marginBottom:12}}>
                             <div style={S.secHdr}><span>2. MEDIDAS EN REPOSO</span></div>
+                            {!modoAprobacion && (
+                                <div style={{padding:'10px 12px 0', display:'flex', flexWrap:'wrap', gap:6, alignItems:'center'}}>
+                                    <span style={{fontSize:10, fontWeight:700, color:'#93c5fd', marginRight:4}}>PARTES:</span>
+                                    {partesDe(ficha).map(function(p,pi){
+                                        return (
+                                            <div key={pi} style={{display:'flex', alignItems:'center', gap:3, background:'#0d1520',
+                                                border:'1px solid #1e3a5f', borderRadius:6, padding:'2px 3px 2px 2px'}}>
+                                                <input value={p} placeholder="Nombre"
+                                                    onChange={function(e){ renombrarParte(ficha.id, pi, e.target.value); }}
+                                                    style={{background:'transparent', border:'none', color:'#bfdbfe', fontSize:11,
+                                                        fontWeight:700, padding:'3px 6px', outline:'none', width: Math.max(70, (p||'').length*7.5+16)}}/>
+                                                <button title="Quitar parte" onClick={function(){ quitarParte(ficha.id, pi); }}
+                                                    style={{background:'#7f1d1d', color:'#fca5a5', border:'none', borderRadius:4,
+                                                        padding:'1px 6px', cursor:'pointer', fontWeight:800, fontSize:11}}>×</button>
+                                            </div>
+                                        );
+                                    })}
+                                    <button onClick={function(){
+                                        var l = partesDe(ficha), n = 'Parte ' + (l.length+1), i = l.length+1;
+                                        while (l.indexOf(n) >= 0) { i++; n = 'Parte ' + i; }
+                                        setPartes(ficha.id, l.concat(n));
+                                    }} style={{padding:'4px 10px', borderRadius:6, background:'#1e3a5f', color:'#93c5fd',
+                                        border:'1px solid #3b82f6', fontSize:10, fontWeight:700, cursor:'pointer'}}>+ Añadir parte</button>
+                                </div>
+                            )}
                             {tallasActivas.length===0 ? (
                                 <p style={{margin:0,padding:'10px 16px',fontSize:10,color:'#374151',fontStyle:'italic'}}>
                                     Selecciona tallas en la sección superior.
@@ -3496,16 +3550,16 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                             <tr style={{background:'#0d1520'}}>
                                                 <th style={S.tdH}>TALLA</th>
                                                 <th style={S.tdH}>DIÁMETRO</th>
-                                                {PARTES_REPOSO.map(p=>(
-                                                    <th key={p} style={S.tdH} colSpan={3}>{p}</th>
+                                                {partesDe(ficha).map((p,pi)=>(
+                                                    <th key={pi} style={S.tdH} colSpan={3}>{p || '(sin nombre)'}</th>
                                                 ))}
                                             </tr>
                                             <tr style={{background:'#0a0e1a'}}>
                                                 <th style={S.tdH}></th>
                                                 <th style={S.tdH}></th>
-                                                {PARTES_REPOSO.map(p=>(
+                                                {partesDe(ficha).map((p,pi)=>(
                                                     ['MIN','PROM','MAX'].map(function(l){
-                                                        return <th key={p+l} style={Object.assign({},S.tdH,
+                                                        return <th key={pi+l} style={Object.assign({},S.tdH,
                                                             l!=='PROM'?{color:'#ef4444'}:{color:'#e2e8f0'})}>{l}</th>;
                                                     })
                                                 ))}
@@ -3529,11 +3583,11 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                                                 {DIAMETROS.map(function(d){return <option key={d} value={d}>{d}</option>;})}
                                                             </select>
                                                         </td>
-                                                        {PARTES_REPOSO.map(function(parte){
+                                                        {partesDe(ficha).map(function(parte,pi){
                                                             var parteData = mr[parte]||{};
                                                             return ['min','prom','max'].map(function(lim){
                                                                 return (
-                                                                    <td key={parte+lim} style={Object.assign({},S.td,{padding:'2px 3px'})}>
+                                                                    <td key={pi+lim} style={Object.assign({},S.td,{padding:'2px 3px'})}>
                                                                         <input
                                                                             value={parteData[lim]||''}
                                                                             onChange={function(e){updReposo(ficha.id,talla,parte,lim,e.target.value);}}
@@ -5888,8 +5942,8 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             sf('#3b82f6'); doc.rect(ML,y,3,7,'F');
                             B(9,'#bfdbfe'); doc.text('2. MEDIDAS EN REPOSO', ML+5, y+5);
                             y+=7;
-                            const rP=['Puño','Cuerpo/Panty','Pierna','Largo Total'];
-                            const rCW=(CW-32)/(rP.length);
+                            const rP=(Array.isArray(ft.partesReposo)?ft.partesReposo:['Puño','Cuerpo/Panty','Pierna','Largo Total']).filter(p=>p);
+                            const rCW=(CW-32)/Math.max(1,rP.length);
                             sf('#0f2744'); doc.rect(ML,y,CW,5.5,'F');
                             B(5.5,'#9ca3af'); doc.text('TALLA',ML+2,y+4); doc.text('DIÁM.',ML+18,y+4);
                             rP.forEach((p,pi2)=>{ B(6,pi2%2===0?'#93c5fd':'#bfdbfe'); doc.text(p,ML+32+pi2*rCW+rCW/2,y+4,{align:'center'}); });
