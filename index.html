@@ -252,7 +252,14 @@
         ::-webkit-scrollbar { width: 6px; height: 6px; }
         ::-webkit-scrollbar-track { background: #0a0e1a; }
         ::-webkit-scrollbar-thumb { background: #2a3a50; border-radius: 3px; }
-    </style>
+    
+/* Esquema de enhebrado Lonati: en celular los alimentadores van uno debajo del otro */
+@media (max-width: 760px) {
+  .lon-esq { grid-template-areas: none !important; grid-template-columns: 1fr !important; }
+  .lon-esq > div { grid-area: auto !important; }
+  .lon-esq .lon-circ { max-width: 200px !important; }
+}
+</style>
 </head>
 <body>
     <div id="root"></div>
@@ -1627,6 +1634,59 @@
 
 
 
+/* Esquemas de enhebrado Lonati (como los formatos en papel FT-CIR-002 y FT-CIR-007).
+   Cada guia se guarda en el mismo "grid" del enhebrado con clave propia del esquema,
+   ej. 'L1:P_4' = ENE, alimentador 1 principal, guia 4; 'L2:3A_1' = ENE 2, alim 3A, guia 1.
+   Asi nunca se cruza con la matriz de Santoni ('a1_g3'). */
+const LONATI_ESQ = {
+    ene: {
+        nombre: 'ENE · Lonati GL615', corto: 'Lonati GL615 (ENE)', pref: 'L1:', orden: ['E','P','1','2','3','4','5'],
+        areas: '"e circ circ big" "s5 circ circ big" "s4 s3 s2 s1"', cols: 'repeat(4, minmax(0,1fr))',
+        alims: [
+            { k:'E', lbl:'E',  area:'e',   n:2 },
+            { k:'P', lbl:'1',  sub:'principal', area:'big', n:9, alt:[3,4,5] },
+            { k:'5', lbl:'5',  area:'s5',  n:2 },
+            { k:'4', lbl:'4',  area:'s4',  n:3 },
+            { k:'3', lbl:'3',  area:'s3',  n:3 },
+            { k:'2', lbl:'2',  area:'s2',  n:3 },
+            { k:'1', lbl:'1',  area:'s1',  n:3 },
+        ],
+    },
+    ene2: {
+        nombre: 'ENE 2 · Lonati (demás modelos)', corto: 'Lonati (ENE 2)', pref: 'L2:', orden: ['1','1A','2','3','3A','4'],
+        areas: '"f4 f3a f3" "f4 circ f3" "f1 circ f2" "f1 f1a f2"', cols: 'repeat(3, minmax(0,1fr))',
+        alims: [
+            { k:'4',  lbl:'4',  area:'f4',  n:6, desc:true },
+            { k:'3A', lbl:'3A', area:'f3a', n:2 },
+            { k:'3',  lbl:'3',  area:'f3',  n:6 },
+            { k:'1',  lbl:'1',  area:'f1',  n:6, desc:true },
+            { k:'1A', lbl:'1A', area:'f1a', n:2 },
+            { k:'2',  lbl:'2',  area:'f2',  n:6 },
+        ],
+    },
+};
+// Esquema que corresponde a una opcion de maquina de la ficha
+const esquemaDeMaquina = (m) => !m || m.tipoMaquina !== 'Lonati' ? 'santoni'
+    : (String(m.maquinaModelo || '').toUpperCase() === 'GL615' ? 'ene' : 'ene2');
+// Esquema Lonati que trae un enhebrado guardado (por sus claves), o null si es matriz Santoni
+const esquemaDeGrid = (grid) => {
+    const ks = Object.keys(grid || {});
+    if (ks.some(k => k.indexOf('L1:') === 0)) return 'ene';
+    if (ks.some(k => k.indexOf('L2:') === 0)) return 'ene2';
+    return null;
+};
+// Guias de un esquema Lonati en orden de lectura: [{alim, guia, key, alterno}]
+const guiasLonati = (esq) => {
+    const E = LONATI_ESQ[esq], out = [];
+    E.orden.map(k => E.alims.filter(a => a.k === k)[0]).forEach(al => {
+        for (let g = 1; g <= al.n; g++) {
+            out.push({ al, guia: g, key: E.pref + al.k + '_' + g });
+            if (al.alt && al.alt.indexOf(g) >= 0) out.push({ al, guia: g, key: E.pref + al.k + '_' + g + 'b', alterno: true });
+        }
+    });
+    return out;
+};
+
 const EnhebradoTab = ({ structures, focusId }) => {
     const EKEY = 'swantex_enh_v2';
 
@@ -1636,6 +1696,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
     const [grid,    setGrid]        = useState({});   // 'a1_g3' → {nombre,titulo,lote,itemS,itemZ}
     const [selHilo, setSelHilo]     = useState(null); // hilo activo para click-to-place
     const [allData, setAllData]     = useState({});   // todos los enhebrados guardados
+    const [esqSel,  setEsqSel]      = useState(null); // solo si la ficha tiene maquinas Santoni y Lonati
 
     // Cargar todos los datos al montar
     useEffect(() => {
@@ -1675,6 +1736,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
             setNumGH(9);
         }
         setSelHilo(null);
+        setEsqSel(null);
     }, [fichaId]);
 
     // Inicializar fichaId: la ficha que se esta trabajando (si hay) o la primera
@@ -1706,6 +1768,31 @@ const EnhebradoTab = ({ structures, focusId }) => {
     };
 
     const ficha = structures.find(s => s.id === fichaId) || null;
+
+    // Santoni -> matriz de siempre. Lonati -> ENE (GL615) o ENE 2 (demas modelos), segun la maquina de la ficha.
+    const opcionesEsq = ficha ? getMaquinas(ficha.header).map(esquemaDeMaquina).filter((v, i, a) => a.indexOf(v) === i) : ['santoni'];
+    const esquema = (esqSel && opcionesEsq.indexOf(esqSel) >= 0) ? esqSel : (opcionesEsq[0] || 'santoni');
+    const esLonati = esquema !== 'santoni';
+    const ESQ = esLonati ? LONATI_ESQ[esquema] : null;
+    const esDelEsquema = (k) => esLonati ? k.indexOf(ESQ.pref) === 0 : /^a\d+_g\d+$/.test(k);
+    const nombreEsq = (e) => e === 'santoni' ? 'Santoni (matriz)' : LONATI_ESQ[e].nombre;
+
+    const colocar = (key) => {
+        if (!selHilo) return;
+        const newGrid = Object.assign({}, grid);
+        if (selHilo === 'CLEAR') delete newGrid[key];
+        else if (selHilo === 'TEXT') {
+            const prev = grid[key] && grid[key].texto;
+            const t = window.prompt('Texto para esta guía (ej. TRANSFERENCIA):', prev || 'TRANSFERENCIA');
+            if (t === null) return;
+            if (t.trim()) newGrid[key] = { texto: t.trim().toUpperCase() }; else delete newGrid[key];
+        } else {
+            newGrid[key] = { nombre: selHilo.nombre, titulo: selHilo.titulo, lote: selHilo.lote || '',
+                itemS: selHilo.itemS || '', itemZ: selHilo.itemZ || '', torsion: selHilo.torsion || null };
+        }
+        saveGrid(newGrid, numAlim, numGH);
+    };
+    const quitar = (key) => { const ng = Object.assign({}, grid); delete ng[key]; saveGrid(ng, numAlim, numGH); };
 
     const hilosDisp = ficha
         ? ficha.fibras.filter(f => f.nombre && f.titulo)
@@ -1749,7 +1836,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
 
     const resetGrid = () => {
         if (!window.confirm('¿Resetear todo el enhebrado de esta ficha?')) return;
-        saveGrid({}, numAlim, numGH);
+        const ng = {};
+        Object.keys(grid).forEach(k => { if (!esDelEsquema(k)) ng[k] = grid[k]; });
+        saveGrid(ng, numAlim, numGH);
     };
 
     const changeAlim = (v) => {
@@ -1773,8 +1862,8 @@ const EnhebradoTab = ({ structures, focusId }) => {
     // quedan balanceados entre los alimentadores - clave para un montaje
     // correcto de hilos con torsion).
     const cuentas = {};
-    Object.values(grid).forEach(h => {
-        if (!h) return;
+    Object.keys(grid).filter(esDelEsquema).map(k => grid[k]).forEach(h => {
+        if (!h || !(h.titulo || h.nombre)) return;
         const k = (h.titulo || h.nombre) + (h.torsion ? ' ' + h.torsion : '');
         cuentas[k] = (cuentas[k] || 0) + 1;
     });
@@ -1817,7 +1906,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             textTransform:'uppercase', letterSpacing:'0.14em'}}>FORMATO FT-CIR-004</p>
                         <h2 style={{margin:'0 0 3px', fontSize:16, fontWeight:900, color:'#f1f5f9',
                             letterSpacing:'-0.02em'}}>
-                            MATRIZ GUÍAHILOS × ALIMENTADORES — SANTONI
+                            {esLonati ? 'ESQUEMA DE ENHEBRADO — ' + ESQ.nombre.toUpperCase() : 'MATRIZ GUÍAHILOS × ALIMENTADORES — SANTONI'}
                         </h2>
                         {ficha && (
                             <p style={{margin:0, fontSize:10, color:'#6b7280'}}>
@@ -1848,6 +1937,22 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             ))}
                         </select>
                     </div>
+                    {opcionesEsq.length > 1 && (
+                        <div>
+                            <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
+                                textTransform:'uppercase'}}>Máquina</p>
+                            <select value={esquema} onChange={e => { setEsqSel(e.target.value); setSelHilo(null); }}
+                                style={{fontWeight:700, fontSize:12}}>
+                                {opcionesEsq.map(o => <option key={o} value={o}>{nombreEsq(o)}</option>)}
+                            </select>
+                        </div>
+                    )}
+                    {esLonati && (
+                        <p style={{margin:0, fontSize:11, color:'#6ee7b7', fontWeight:700, alignSelf:'center'}}>
+                            Esquema según la máquina de la ficha: {ESQ.corto}
+                        </p>
+                    )}
+                    {!esLonati && (<React.Fragment>
                     <div>
                         <p style={{margin:'0 0 4px', fontSize:9, fontWeight:700, color:'#4b5563',
                             textTransform:'uppercase'}}>Alimentadores</p>
@@ -1868,6 +1973,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             )}
                         </select>
                     </div>
+                    </React.Fragment>)}
                 </div>
             </div>
 
@@ -1935,6 +2041,17 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             );
                         });
                     })}
+                    {esLonati && (
+                        <button onClick={() => setSelHilo(selHilo === 'TEXT' ? null : 'TEXT')}
+                            style={{display:'flex', alignItems:'center', gap:6,
+                                background: selHilo === 'TEXT' ? '#ca8a04' : '#1f1a0a',
+                                border:'2px solid #ca8a04', borderRadius:9, padding:'6px 12px',
+                                cursor:'pointer', outline:'none'}}>
+                            <span style={{color: selHilo === 'TEXT' ? '#fff' : '#facc15', fontSize:11, fontWeight:800}}>
+                                ✎ Texto (ej. TRANSFERENCIA)
+                            </span>
+                        </button>
+                    )}
                     {/* Borrador */}
                     <button onClick={() => setSelHilo(selHilo === 'CLEAR' ? null : 'CLEAR')}
                         style={{display:'flex', alignItems:'center', gap:6,
@@ -1952,19 +2069,85 @@ const EnhebradoTab = ({ structures, focusId }) => {
                 {selHilo && (
                     <div style={{marginTop:10, padding:'6px 12px', borderRadius:8,
                         background: selHilo === 'CLEAR'
-                            ? 'rgba(220,38,38,0.15)' : 'rgba(16,185,129,0.1)',
+                            ? 'rgba(220,38,38,0.15)' : (selHilo === 'TEXT' ? 'rgba(202,138,4,0.15)' : 'rgba(16,185,129,0.1)'),
                         border: '1px solid ' + (selHilo === 'CLEAR' ? '#dc2626' : '#10b981'),
                         fontSize:11, fontWeight:700,
                         color: selHilo === 'CLEAR' ? '#fca5a5' : '#6ee7b7',
                         display:'inline-block'}}>
                         {selHilo === 'CLEAR'
-                            ? '✕ Modo borrar — haz clic en cualquier celda para vaciarla'
-                            : '→ Clic en cualquier celda para colocar: ' + selHilo.titulo + (selHilo.torsion ? ' (' + selHilo.torsion + ')' : '')}
+                            ? '✕ Modo borrar — haz clic en cualquier ' + (esLonati ? 'guía' : 'celda') + ' para vaciarla'
+                            : selHilo === 'TEXT' ? '✎ Clic en la guía donde va el texto'
+                            : '→ Clic en cualquier ' + (esLonati ? 'guía' : 'celda') + ' para colocar: ' + selHilo.titulo + (selHilo.torsion ? ' (' + selHilo.torsion + ')' : '')}
                     </div>
                 )}
             </div>
 
+            {/* ── ESQUEMA LONATI (ENE / ENE 2) ── */}
+            {esLonati && (
+                <div className="lon-esq" style={{display:'grid', gridTemplateAreas:ESQ.areas, gridTemplateColumns:ESQ.cols,
+                    gap:14, alignItems:'start', background:'#0a0e1a', border:'1px solid #1f2937', borderRadius:12, padding:14}}>
+                    <div className="lon-circ" style={{gridArea:'circ', alignSelf:'center', justifySelf:'center', width:'100%', maxWidth:300,
+                        aspectRatio:'1.35', borderRadius:'50%', border:'3px solid #1e3a5f',
+                        background:'radial-gradient(ellipse at center, #e0f2fe 0%, #7dd3fc 55%, #0c4a6e 100%)',
+                        display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center'}}>
+                        <span style={{fontSize:26, fontWeight:900, color:'#0c4a6e', letterSpacing:'.04em'}}>LONATI</span>
+                        <span style={{fontSize:11, fontWeight:800, color:'#075985'}}>{ESQ.corto}</span>
+                    </div>
+                    {ESQ.alims.map(al => {
+                        const guias = []; for (let g = 1; g <= al.n; g++) guias.push(g);
+                        if (al.desc) guias.reverse();
+                        const celda = (key) => {
+                            const h = grid[key];
+                            const col = h && h.nombre ? getCol(h.nombre) : null;
+                            return (
+                                <div onClick={() => colocar(key)}
+                                    style={{flex:1, minWidth:0, minHeight:30, display:'flex', alignItems:'center', gap:5,
+                                        padding:'3px 7px', borderRadius:7, cursor: selHilo ? 'pointer' : 'default',
+                                        background: h ? (col ? col.bg : '#1f1a0a') : '#0d1520',
+                                        border: '1px ' + (selHilo ? 'dashed #10b98166' : 'solid #1f2937')}}>
+                                    {h ? (h.texto ? (
+                                        <span style={{fontSize:10.5, fontWeight:800, color:'#facc15', fontStyle:'italic', flex:1}}>{h.texto}</span>
+                                    ) : (<React.Fragment>
+                                        <span style={{width:6, height:6, borderRadius:'50%', background:col.border, flexShrink:0}}/>
+                                        <span style={{fontSize:10.5, fontWeight:800, color:col.text, flex:1, minWidth:0,
+                                            overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap'}} title={h.titulo}>{h.titulo || h.nombre}</span>
+                                        {h.torsion && <span className={'badge torsion-' + h.torsion.toLowerCase()}
+                                            style={{fontSize:10, fontWeight:900, padding:'0 6px', borderRadius:99, flexShrink:0}}>{h.torsion}</span>}
+                                    </React.Fragment>)) : <span style={{color:'#2a3a50', fontSize:13}}>—</span>}
+                                    {h && <button onClick={e => { e.stopPropagation(); quitar(key); }} title="Borrar"
+                                        style={{background:'none', border:'none', color:'#6b7280', cursor:'pointer', fontSize:13, padding:'0 2px', flexShrink:0}}>×</button>}
+                                </div>
+                            );
+                        };
+                        return (
+                            <div key={al.k} style={{gridArea:al.area, background:'#111827', border:'1px solid #1e3a5f', borderRadius:10, padding:'8px 9px'}}>
+                                <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:6}}>
+                                    <span style={{background:'#3b82f6', color:'#fff', fontWeight:900, fontSize:13, borderRadius:6,
+                                        padding:'2px 9px', transform:'rotate(-8deg)', display:'inline-block'}}>{al.lbl}</span>
+                                    <span style={{fontSize:9, fontWeight:800, color:'#93c5fd', textTransform:'uppercase', letterSpacing:'.08em'}}>
+                                        Alimentador {al.lbl}{al.sub ? ' · ' + al.sub : ''}
+                                    </span>
+                                </div>
+                                {guias.map(g => {
+                                    const k = ESQ.pref + al.k + '_' + g;
+                                    const conAlt = al.alt && al.alt.indexOf(g) >= 0;
+                                    return (
+                                        <div key={g} style={{display:'flex', alignItems:'center', gap:5, marginBottom:4}}>
+                                            <span style={{width:18, fontSize:10, fontWeight:800, color:'#6b7280', textAlign:'right', flexShrink:0}}>{g}-</span>
+                                            {celda(k)}
+                                            {conAlt && <span style={{color:'#4b5563', fontWeight:800}}>/</span>}
+                                            {conAlt && celda(k + 'b')}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
             {/* ── MATRIZ ── */}
+            {!esLonati && (
             <div style={{overflowX:'auto', borderRadius:12, border:'1px solid #1f2937'}}>
                 <table style={{borderCollapse:'collapse', minWidth: 100 + numGH * 110, width:'100%'}}>
                     <thead>
@@ -2057,13 +2240,15 @@ const EnhebradoTab = ({ structures, focusId }) => {
                     </tbody>
                 </table>
             </div>
+            )}
 
             {/* ── INSTRUCCIONES ── */}
             <div style={{marginTop:12, display:'flex', flexWrap:'wrap', gap:16,
                 fontSize:10, color:'#374151'}}>
                 {[
                     ['Seleccionar hilo', 'Haz clic en un hilo de la paleta (queda resaltado)'],
-                    ['Colocar en celda', 'Haz clic en cualquier celda de la matriz'],
+                    ['Colocar en celda', esLonati ? 'Haz clic en la guía del alimentador (1-, 2-, …)' : 'Haz clic en cualquier celda de la matriz'],
+                    ['Esquema', 'Santoni usa la matriz; Lonati GL615 usa el ENE y los demás Lonati el ENE 2, según la máquina elegida en F-CIR-002'],
                     ['Borrar celda',     'Usa "✕ Borrar celda" o el × dentro de cada celda'],
                     ['Cambiar ficha',    'Cada ficha guarda su propio enhebrado automáticamente'],
                     ['Torsión S / Z',    'Los hilos con torsión aparecen como dos fichas (S y Z) en la paleta; cada celda queda marcada con cuál va, para armar el montaje sin confundirlas'],
@@ -5477,8 +5662,9 @@ const EnhebradoTab = ({ structures, focusId }) => {
                         y=checkPage(y,12);
                         sf('#7c2d12'); doc.rect(ML,y,CW,8,'F');
                         sf('#f97316'); doc.rect(ML,y,3,8,'F');
-                        B(9,'#fed7aa'); doc.text('FT-CIR-005  ·  ESQUEMA DE ENHEBRADO — GUÍAHILOS × ALIMENTADORES', ML+5, y+5.5);
-                        B(7,'#fb923c'); doc.text(enhAlim+' Alim.  ·  '+enhGH+' GH', PW-MR, y+5.5, {align:'right'});
+                        const enhEsq   = esquemaDeGrid(enhGrid);
+                        B(9,'#fed7aa'); doc.text('FT-CIR-005  ·  ESQUEMA DE ENHEBRADO — '+(enhEsq?'ALIMENTADORES LONATI':'GUÍAHILOS × ALIMENTADORES'), ML+5, y+5.5);
+                        B(7,'#fb923c'); doc.text(enhEsq ? LONATI_ESQ[enhEsq].corto : (enhAlim+' Alim.  ·  '+enhGH+' GH'), PW-MR, y+5.5, {align:'right'});
                         y+=10;
 
                         if(!refId||Object.keys(enhGrid).length===0){
@@ -5488,7 +5674,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                         } else {
                             /* Build hilo color map */
                             const hilosEnh={};
-                            Object.values(enhGrid).forEach(h=>{ if(h&&h.titulo) hilosEnh[h.titulo]={nombre:h.nombre}; });
+                            Object.keys(enhGrid).filter(k=>!enhEsq||k.indexOf(LONATI_ESQ[enhEsq].pref)===0).forEach(k=>{ const h=enhGrid[k]; if(h&&h.titulo) hilosEnh[h.titulo]={nombre:h.nombre}; });
                             const legendItems=Object.keys(hilosEnh);
                             const legendColors=['#93c5fd','#6ee7b7','#fcd34d','#f9a8d4','#c4b5fd','#fca5a5','#fdba74'];
                             const hcMap={};
@@ -5507,6 +5693,31 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             });
                             y+=8;
 
+                            if(enhEsq){
+                                /* Lonati: tabla Alimentador / Guía / Hilo (solo las guías con algo) */
+                                const filas = guiasLonati(enhEsq).filter(x=>enhGrid[x.key]);
+                                const cols=[{l:'ALIMENTADOR',w:30},{l:'GUÍA',w:16},{l:'HILO / TÍTULO',w:70},{l:'TORSIÓN',w:20},{l:'LOTE',w:CW-136}];
+                                y=checkPage(y,7+Math.min(filas.length,6)*6.5);
+                                sf('#7c2d12'); doc.rect(ML,y,CW,6.5,'F');
+                                let cx=ML; cols.forEach(c=>{ B(6.5,'#fed7aa'); doc.text(c.l,cx+2,y+4.5); cx+=c.w; });
+                                y+=6.5;
+                                filas.forEach((x,ri)=>{
+                                    y=checkPage(y,6.5);
+                                    const h=enhGrid[x.key];
+                                    sf(ri%2===0?'#1a0500':'#220800'); doc.rect(ML,y,CW,6.5,'F');
+                                    const vals=[x.al.lbl+(x.al.sub?' ('+x.al.sub+')':''), x.guia+(x.alterno?' /':''),
+                                        h.texto||h.titulo||h.nombre||'', h.texto?'':(h.torsion||'—'), h.texto?'':(h.lote||'')];
+                                    cx=ML;
+                                    cols.forEach((c,ci)=>{
+                                        if(ci===2) B(7.5, h.texto?'#facc15':(hcMap[h.titulo]||'#e2e8f0')); else if(ci===0) B(7.5,'#fb923c'); else N(7,'#d1d5db');
+                                        const t=String(vals[ci]); const max=Math.floor(c.w/2);
+                                        doc.text(t.length>max?t.slice(0,max-1)+'…':t, cx+2, y+4.5);
+                                        cx+=c.w;
+                                    });
+                                    y+=6.5;
+                                });
+                                y+=5;
+                            } else {
                             /* ── MATRIX: decide portrait vs landscape ── */
                             const ghArr=[]; for(let i=1;i<=enhGH;i++) ghArr.push(i);
                             const alimArr=[]; for(let i=1;i<=enhAlim;i++) alimArr.push(i);
@@ -5663,6 +5874,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                 B(7,'#fcd34d'); doc.text('LCC: '+(ft.lcc||'—'), ML+100, y+5.5);
                                 N(5.5,'#6b7280'); doc.text('Medidas · Aprobaciones', PW-MR, y+5.5, {align:'right'});
                                 y+=11;
+                            }
                             }
                         }
 
