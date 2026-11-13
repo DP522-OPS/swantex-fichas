@@ -1295,9 +1295,9 @@
         { tipo:'Nylon Tex', titulo:'Nylon 40/34 – 50/72',    dtex:45,  lote:'04-224',     itemS:'7091', itemZ:'7092', proveedor:'Fujian' },
         { tipo:'Nylon Tex', titulo:'Nylon 22/7 TX',          dtex:22,  lote:'DFE20718',   itemS:'9457', itemZ:'9458', proveedor:'Fujian' },
         { tipo:'Nylon Tex', titulo:'Nylon 44/12 TX',         dtex:44,  lote:'DFE401219',  itemS:'9449', itemZ:'9450', proveedor:'Fujian' },
-        { tipo:'Nylon Tex', titulo:'Nylon 70/68/2',           dtex:140, lote:'04-228',    itemS:'5565', itemZ:'', proveedor:'Fujian' },
-        { tipo:'Nylon Tex', titulo:'Nylon 160/136',          dtex:160, lote:'D160136247F', itemS:'9597', itemZ:'', proveedor:'Xiamen' },
-        { tipo:'Nylon Tex', titulo:'Nylon 160/136',          dtex:160, lote:'F160136230F', itemS:'9597', itemZ:'', proveedor:'Xiamen' },
+        { tipo:'Nylon Tex', titulo:'Nylon 70/68/2',           dtex:140, lote:'04-228',    itemS:'5565', itemZ:'', paralelo:true, proveedor:'Fujian' },
+        { tipo:'Nylon Tex', titulo:'Nylon 160/136',          dtex:160, lote:'D160136247F', itemS:'9597', itemZ:'', paralelo:true, proveedor:'Xiamen' },
+        { tipo:'Nylon Tex', titulo:'Nylon 160/136',          dtex:160, lote:'F160136230F', itemS:'9597', itemZ:'', paralelo:true, proveedor:'Xiamen' },
         // Body Fresh — va en Nylon Tex, 40 dtex directo, % fijo 5% (refuerzo entrepierna)
         { tipo:'Nylon Tex', titulo:'Nylon Body Fresh 40/40', dtex:40,  esBodyFresh:true, pctFijo:5, lote:'BF40001', itemS:'BF001', itemZ:'', proveedor:'Nylin' },
         // ── Nylon Rígido (sin torsión) ────────────────────────────────
@@ -1357,8 +1357,11 @@
         'Jaspe':     '#ef4444',
     };
 
+    // Hilos paralelos (texturizado sin torsion, un solo item): se manejan como sin torsion
+    const esParalelo = f => !!(f && HILOS_DB.some(p => p.paralelo && p.tipo === f.nombre && p.titulo === f.titulo));
     const isRigid = f => {
         if (!f) return false;
+        if (esParalelo(f)) return true;
         if (f.nombre==='Nylon Rig' || f.nombre==='Poliester' || f.nombre==='Modal') return true;
         if (f.nombre==='Lycra' && f.titulo && f.titulo.toLowerCase().includes('140')) return true;
         return false;
@@ -5153,7 +5156,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                         'COSTO KG (USD)': parseFloat(f.costoKg)||0,
                     };
                     if (rigid) {
-                        rows.push({ ...base, 'TORSIÓN':'Rígido', 'ITEM':f.itemS,
+                        rows.push({ ...base, 'TORSIÓN':esParalelo(f)?'Paralelo':'Rígido', 'ITEM':f.itemS,
                             'CONSUMO (g)': +gr.toFixed(2), 'COSTO DOC (USD)': +cost.toFixed(3) });
                     } else {
                         rows.push({ ...base, 'TORSIÓN':'S', 'ITEM':f.itemS,
@@ -5344,7 +5347,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                 {v:`${f.porcentaje}%`, b:true, al:'center', col:f.porcentaje>0?'#059669':'#dc2626'},
                                 {v:gr.toFixed(1), b:true, al:'center'},
                                 {v: rigid
-                                    ? `[RÍG] ${f.itemS||'—'}`
+                                    ? `[${esParalelo(f)?'PAR':'RÍG'}] ${f.itemS||'—'}`
                                     : `[S] ${f.itemS||'—'}   [Z] ${f.itemZ||'—'}`,
                                   b:false, al:'left', sz:6},
                                 {v:`$${cost.toFixed(2)}`, b:true, al:'right', col:'#059669'},
@@ -5410,7 +5413,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                             doc.text(lbl.length>14?lbl.slice(0,14)+'…':lbl, txc+2, tyc+5);
                             if (rigid) {
                                 setFill('#dcfce7'); doc.roundedRect(txc+bw-28, tyc+1.5, 9,4,1,1,'F');
-                                doc.setFontSize(5); setTxt('#166534'); doc.text('RÍG', txc+bw-23.5, tyc+4.5, {align:'center'});
+                                doc.setFontSize(5); setTxt('#166534'); doc.text(esParalelo(f)?'PAR':'RÍG', txc+bw-23.5, tyc+4.5, {align:'center'});
                                 doc.setFontSize(6); setTxt('#059669'); doc.text(`${gr.toFixed(1)}g`, txc+bw-18, tyc+5);
                             } else {
                                 setFill('#dbeafe'); doc.roundedRect(txc+bw-26, tyc+1.5, 6,4,1,1,'F');
@@ -6649,7 +6652,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                                             {/* torsiones */}
                                             {rigid ? (
                                                 <div style={{textAlign:'center', padding:'8px 0'}}>
-                                                    <span className="badge torsion-r" style={{marginBottom:6}}>Rígido · Sin torsión</span>
+                                                    <span className="badge torsion-r" style={{marginBottom:6}}>{esParalelo(f) ? 'Paralelo · Sin torsión' : 'Rígido · Sin torsión'}</span>
                                                     <p className="mono" style={{fontSize:20, fontWeight:700, color:'#e2e8f0', margin:'4px 0 2px'}}>{gr.toFixed(1)} gr</p>
                                                     <p style={{fontSize:10, color:'#4b5563', fontWeight:600}}>{f.itemS||'—'}</p>
                                                 </div>
@@ -6761,7 +6764,7 @@ const EnhebradoTab = ({ structures, focusId }) => {
                     <div style={{background:'#0a0e1a', borderRadius:8, padding:10, display:'grid', gridTemplateColumns: rigid?'1fr':'1fr 1fr', gap:8}}>
                         {rigid ? (
                             <div>
-                                <label className="field-label">Item (Rígido)</label>
+                                <label className="field-label">Item ({esParalelo(f) ? 'Paralelo' : 'Rígido'})</label>
                                 <input value={f.itemS} onChange={e=>onUpdate(sid,fi,'itemS',e.target.value)} placeholder="Código item"/>
                             </div>
                         ) : (
